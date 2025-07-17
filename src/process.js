@@ -104,9 +104,9 @@ async loadUserPreferences() {
 			this.screensaverPasswordMode = null;
 		}
 
-		if (!this.screensaverPasswordMode) {
-			this.promptPasswordModeChoice();
-		}
+	   if (!this.screensaverPassword) {
+		   this.promptSetPassword();
+	   }
 
 		this._showOverlayListener = (e) => {
 			if (!this.unlocking && !this.unlocked && (e.code === 'Space' || e.key === ' ')) {
@@ -144,63 +144,7 @@ async loadUserPreferences() {
 		console.log(msg);
 	}
 
-	promptPasswordModeChoice() {
-		const body = this.getBody();
-		if (!body) return;
-		let overlay = body.querySelector('#lock-overlay');
-		if (!overlay) {
-			overlay = document.createElement('div');
-			overlay.id = 'lock-overlay';
-			overlay.style.position = 'absolute';
-			overlay.style.top = '0';
-			overlay.style.left = '0';
-			overlay.style.width = '100vw';
-			overlay.style.height = '100vh';
-			overlay.style.background = 'rgba(0,0,0,0.85)';
-			overlay.style.display = 'flex';
-			overlay.style.flexDirection = 'column';
-			overlay.style.alignItems = 'center';
-			overlay.style.justifyContent = 'center';
-			overlay.style.zIndex = '10';
-			overlay.innerHTML = `
-				<div style="background:rgba(20,20,20,0.9);padding:32px 40px;border-radius:16px;box-shadow:0 4px 32px #000;display:flex;flex-direction:column;align-items:center;">
-					<div style="color:#fff;font-size:1.3em;font-weight:600;margin-bottom:16px;">Choose screensaver unlock method</div>
-					<button id="use-account-password" style="padding:10px 24px;font-size:1em;border-radius:8px;border:none;background:#4D96FF;color:#fff;font-weight:600;cursor:pointer;margin-bottom:12px;">Use account password</button>
-					<button id="use-custom-password" style="padding:10px 24px;font-size:1em;border-radius:8px;border:none;background:#6BCB77;color:#fff;font-weight:600;cursor:pointer;">Set a custom password</button>
-				</div>
-			`;
-			body.appendChild(overlay);
-		}
-		const btnAccount = overlay.querySelector('#use-account-password');
-		const btnCustom = overlay.querySelector('#use-custom-password');
-		if (btnAccount) {
-			btnAccount.onclick = async () => {
-				// Save mode in preferences
-				if (!this.userPreferences.appPreferences[this.app.id]) this.userPreferences.appPreferences[this.app.id] = {};
-				this.userPreferences.appPreferences[this.app.id].screensaverPasswordMode = 'account';
-				// Also update account info from userDaemon if available
-				if (this.userDaemon) {
-					if (!this.userPreferences.account) this.userPreferences.account = {};
-					if (this.userDaemon.displayName) this.userPreferences.account.displayName = this.userDaemon.displayName;
-					if (this.userDaemon.profilePicture) this.userPreferences.account.profilePicture = this.userDaemon.profilePicture;
-				}
-				await this.writeJsonFile('src/userPreferences.json', this.userPreferences);
-				this.screensaverPasswordMode = 'account';
-				overlay.remove();
-			};
-		}
-		if (btnCustom) {
-			btnCustom.onclick = async () => {
-				// Save mode in preferences and prompt for password
-				if (!this.userPreferences.appPreferences[this.app.id]) this.userPreferences.appPreferences[this.app.id] = {};
-				this.userPreferences.appPreferences[this.app.id].screensaverPasswordMode = 'custom';
-				await this.writeJsonFile('src/userPreferences.json', this.userPreferences);
-				this.screensaverPasswordMode = 'custom';
-				overlay.remove();
-				this.promptSetPassword();
-			};
-		}
-	}
+   // Removed promptPasswordModeChoice: always use custom password mode
 
 	promptSetPassword() {
 		const body = this.getBody();
@@ -277,9 +221,41 @@ async loadUserPreferences() {
 		return false;
 	}
 
-	showPasswordOverlay() {
+	async showPasswordOverlay() {
 		if (this.unlocking) return;
 		this.unlocking = true;
+		// Always fetch latest user info and password mode before showing overlay
+		let displayName = 'User';
+		let profilePicture = '';
+		let screensaverPassword = null;
+		let screensaverPasswordMode = null;
+		try {
+			if (this.userDaemon && typeof this.userDaemon.getUserInfo === 'function') {
+				const info = await this.userDaemon.getUserInfo();
+				if (info && info.preferences && info.preferences.account) {
+					displayName = info.preferences.account.displayName || 'User';
+					profilePicture = info.preferences.account.profilePicture || '';
+				}
+				if (info && info.preferences && info.preferences.appPreferences && info.preferences.appPreferences[this.app.id]) {
+					screensaverPassword = info.preferences.appPreferences[this.app.id].screensaverPassword || null;
+					screensaverPasswordMode = info.preferences.appPreferences[this.app.id].screensaverPasswordMode || null;
+				}
+			} else {
+				let prefs = this.userPreferences && typeof this.userPreferences === 'function' ? this.userPreferences() : this.userPreferences;
+				if (prefs && prefs.account) {
+					displayName = prefs.account.displayName || 'User';
+					profilePicture = prefs.account.profilePicture || '';
+				}
+				if (prefs && prefs.appPreferences && prefs.appPreferences[this.app.id]) {
+					screensaverPassword = prefs.appPreferences[this.app.id].screensaverPassword || null;
+					screensaverPasswordMode = prefs.appPreferences[this.app.id].screensaverPasswordMode || null;
+				}
+			}
+		} catch (e) {
+			// fallback to defaults
+		}
+		this.screensaverPassword = screensaverPassword;
+		this.screensaverPasswordMode = screensaverPasswordMode;
 		const body = this.getBody();
 		if (!body) return;
 		let overlay = body.querySelector ? body.querySelector('#lock-overlay') : null;
@@ -297,14 +273,6 @@ async loadUserPreferences() {
 			overlay.style.alignItems = 'center';
 			overlay.style.justifyContent = 'center';
 			overlay.style.zIndex = '10';
-			// Use userPreferences() if it's a function, else fallback
-			let displayName = 'User';
-			let profilePicture = '';
-			let prefs = this.userPreferences && typeof this.userPreferences === 'function' ? this.userPreferences() : this.userPreferences;
-			if (prefs && prefs.account) {
-				displayName = prefs.account.displayName || 'User';
-				profilePicture = prefs.account.profilePicture || '';
-			}
 			overlay.innerHTML = `
 				<div style="background:rgba(20,20,20,0.9);padding:32px 40px;border-radius:16px;box-shadow:0 4px 32px #000;display:flex;flex-direction:column;align-items:center;">
 					<img src="${profilePicture}" alt="Profile" style="width:96px;height:96px;border-radius:50%;object-fit:cover;background:#222;margin-bottom:16px;" onerror="this.style.display='none'" />
@@ -327,27 +295,17 @@ async loadUserPreferences() {
 				errorDiv.style.display = 'block';
 				return;
 			}
-			// Validate password (replace with real validation if available)
-			let valid = false;
-			try {
-				if (this.userDaemon && typeof this.userDaemon.validatePassword === 'function') {
-					valid = await this.userDaemon.validatePassword(password);
-				} else {
-					// Fallback: accept any non-empty password for demo
-					valid = password.length > 0;
-				}
-			} catch (e) {
-				valid = false;
-			}
+	   let valid = false;
+	   if (this.screensaverPassword) {
+		   valid = password === this.screensaverPassword;
+	   }
 			if (valid) {
 				this.unlocked = true;
 				overlay.remove();
 				this.unlocking = false;
-				// Remove keydown listener after unlock
 				if (this._showOverlayListener) {
 					window.removeEventListener('keydown', this._showOverlayListener);
 				}
-				// Actually close the app after unlock
 				if (typeof this.closeWindow === 'function') {
 					this.closeWindow();
 				}
@@ -377,11 +335,9 @@ async loadUserPreferences() {
 			this.unlocked = true;
 			overlay.remove();
 			this.unlocking = false;
-			// Remove overlay event listeners
 			if (this._showOverlayListener) {
 				window.removeEventListener('keydown', this._showOverlayListener);
 			}
-			// Close the app
 			if (typeof this.closeWindow === 'function') {
 				this.closeWindow();
 			}
