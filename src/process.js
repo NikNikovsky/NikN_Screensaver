@@ -14,22 +14,28 @@ class proc extends ThirdPartyAppProcess {
 		const body = this.getBody();
 		body.innerHTML = html;
 
-		// Try to get user info (profile picture and display name)
+		// Try to get user info (profile picture and display name) using this.userPreferences()
 		try {
-			if (this.userDaemon && this.userDaemon.userPreferences) {
-				const prefs = this.userDaemon.userPreferences;
-				if (prefs.account) {
-					this.profilePicture = prefs.account.profilePicture;
-					this.displayName = prefs.account.displayName || "User";
-				}
+			const prefs = this.userPreferences && typeof this.userPreferences === 'function' ? this.userPreferences() : null;
+			if (prefs && prefs.account) {
+				this.displayName = prefs.account.displayName || 'User';
+				this.profilePicture = prefs.account.profilePicture || null;
+			} else {
+				this.displayName = 'User';
+				this.profilePicture = null;
 			}
 		} catch (e) {
+			this.displayName = 'User';
 			this.profilePicture = null;
-			this.displayName = "User";
 		}
 
-		// Add password overlay
-		this.showPasswordOverlay();
+		// Listen for space key to show password overlay
+		this._showOverlayListener = (e) => {
+			if (!this.unlocking && !this.unlocked && (e.code === 'Space' || e.key === ' ')) {
+				this.showPasswordOverlay();
+			}
+		};
+		window.addEventListener('keydown', this._showOverlayListener);
 
 		// Start the Flurry-style animation
 		this.startFlurryAnimation();
@@ -100,6 +106,10 @@ class proc extends ThirdPartyAppProcess {
 				this.unlocked = true;
 				overlay.remove();
 				this.unlocking = false;
+				// Remove keydown listener after unlock
+				if (this._showOverlayListener) {
+					window.removeEventListener('keydown', this._showOverlayListener);
+				}
 			} else {
 				errorDiv.textContent = 'Incorrect password.';
 				errorDiv.style.display = 'block';
