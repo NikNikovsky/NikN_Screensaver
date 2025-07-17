@@ -12,6 +12,7 @@ class proc extends ThirdPartyAppProcess {
 
 	async render() {
 		const body = this.getBody();
+		if (!body) return;
 		body.innerHTML = html;
 
 		// Try to get user info (profile picture and display name) using this.userPreferences()
@@ -58,7 +59,8 @@ class proc extends ThirdPartyAppProcess {
 		if (this.unlocking) return;
 		this.unlocking = true;
 		const body = this.getBody();
-		let overlay = body.querySelector('#lock-overlay');
+		if (!body) return;
+		let overlay = body.querySelector ? body.querySelector('#lock-overlay') : null;
 		if (!overlay) {
 			overlay = document.createElement('div');
 			overlay.id = 'lock-overlay';
@@ -84,9 +86,10 @@ class proc extends ThirdPartyAppProcess {
 			`;
 			body.appendChild(overlay);
 		}
-		const unlockBtn = overlay.querySelector('#unlock-btn');
-		const passwordInput = overlay.querySelector('#lock-password');
-		const errorDiv = overlay.querySelector('#unlock-error');
+		const unlockBtn = overlay.querySelector ? overlay.querySelector('#unlock-btn') : null;
+		const passwordInput = overlay.querySelector ? overlay.querySelector('#lock-password') : null;
+		const errorDiv = overlay.querySelector ? overlay.querySelector('#unlock-error') : null;
+		if (!unlockBtn || !passwordInput || !errorDiv) return;
 		unlockBtn.onclick = async () => {
 			const password = passwordInput.value;
 			if (!password) {
