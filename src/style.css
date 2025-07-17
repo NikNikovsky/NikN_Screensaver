@@ -1,0 +1,4 @@
+/* Scope CSS of your app by prefixing selectors with the app ID: */
+#NikN_Screensaver > div.body {
+	padding: 15px;
+}
