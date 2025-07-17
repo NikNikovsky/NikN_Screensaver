@@ -3,7 +3,8 @@
     "name": "Screensaver",
     "version": "1.0.0",
     "author": "Nik Nikovsky",
-    "icon": "@local:icon.png"
+    "icon": "@local:icon.png",
+    "appGroup": "systemTools"
   },
   "position": {
     "centered": true,

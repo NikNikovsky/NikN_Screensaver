@@ -5,7 +5,14 @@
     "author": "Nik Nikovsky",
     "version": "1.0.0",
     "installLocation": "U:/Applications/NikN_Screensaver",
-    "appId": "NikN_Screensaver"
+    "appId": "NikN_Screensaver",
+    "store": {
+      "image": "store/image.png",
+      "screenshots": [
+        "store/1.png",
+        "store/2.png"
+      ]
+    }
   },
   "outFile": "NikN_Screensaver.arc",
   "payloadDir": "src",
