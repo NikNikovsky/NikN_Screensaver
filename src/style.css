@@ -1,4 +1,33 @@
-/* Scope CSS of your app by prefixing selectors with the app ID: */
+#NikN_Screensaver #lock-overlay {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100vw;
+	height: 100vh;
+	background: rgba(0,0,0,0.85);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	z-index: 10;
+}
+
 #NikN_Screensaver > div.body {
-	padding: 15px;
+	padding: 0;
+	margin: 0;
+	background: #000;
+	width: 100vw;
+	height: 100vh;
+	overflow: hidden;
+}
+
+#NikN_Screensaver #flurry-canvas {
+	display: block;
+	width: 100vw;
+	height: 100vh;
+	position: absolute;
+	top: 0;
+	left: 0;
+	background: transparent;
+	z-index: 1;
 }
