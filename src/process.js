@@ -43,7 +43,11 @@ class proc extends ThirdPartyAppProcess {
 
 	async onClose() {
 		// Prevent closing unless unlocked
-		if (this.unlocked) return true;
+		if (this.unlocked) {
+			// Actually close the app if unlocked
+			return true;
+		}
+		// Always block close (including Ctrl+Q) unless unlocked
 		if (!this.unlocking) {
 			this.showPasswordOverlay();
 		}
@@ -109,6 +113,10 @@ class proc extends ThirdPartyAppProcess {
 				// Remove keydown listener after unlock
 				if (this._showOverlayListener) {
 					window.removeEventListener('keydown', this._showOverlayListener);
+				}
+				// Actually close the app after unlock
+				if (typeof this.closeWindow === 'function') {
+					this.closeWindow();
 				}
 			} else {
 				errorDiv.textContent = 'Incorrect password.';

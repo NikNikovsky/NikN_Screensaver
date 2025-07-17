@@ -1,7 +1,7 @@
 {
   "metadata": {
     "name": "Screensaver",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "author": "Nik Nikovsky",
     "icon": "@local:icon.png"
   },
@@ -27,12 +27,12 @@
     "maximized": true,
     "headless": true,
     "resizable": false,
-    "fullscreen": false
+    "fullscreen": true
   },
   "controls": {
     "minimize": true,
     "maximize": false,
-    "close": true
+    "close": false
   },
   "glass": true,
   "hidden": false,
