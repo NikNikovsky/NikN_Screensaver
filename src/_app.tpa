@@ -25,7 +25,7 @@
   "state": {
     "minimized": false,
     "maximized": true,
-    "headless": true,
+    "headless": false,
     "resizable": false,
     "fullscreen": true
   },
