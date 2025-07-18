@@ -16,8 +16,32 @@ class proc extends ThirdPartyAppProcess {
         this.profilePicture = null; // User's profile picture URL
         this.displayName = null;    // User's display name
         this._showOverlayListener = null; // Listener for space key
-        // _localPassword will store the lock screen specific password, separate from userDaemon's account password.
+
+        // _localPasswordHash will store the SHA256 hash if persistent storage is available
+        this._localPasswordHash = null;
+        // _localPassword will store the plaintext password in memory if persistent storage is not available
         this._localPassword = null;
+
+        this._lockScreenPasswordFilePath = null; // Will be set if persistent storage is available
+        this._canUsePersistentHashing = false; // Determined during constructor/render
+
+        // Initial check for core utilities that determine persistent hashing capability
+        // This is a preliminary check. Actual usage will have more specific try/catch.
+        try {
+            if (typeof util !== 'undefined' && !!util.sha256 &&
+                typeof util.arrayToText === 'function' && typeof util.textToBlob === 'function' &&
+                typeof UserPaths !== 'undefined' && typeof UserPaths.Configuration === 'string' &&
+                this.fs && !!this.fs.readFile && !!this.fs.writeFile) {
+                this._canUsePersistentHashing = true;
+                this._lockScreenPasswordFilePath = UserPaths.Configuration + '/lockscreen.pwd.hash';
+                console.log("Persistent hashing and file system operations are initially detected as available.");
+            } else {
+                console.warn("Initial check: Some core utilities for persistent hashing (util.sha256, fs, UserPaths.Configuration) are not fully available. Will fall back to in-memory storage.");
+            }
+        } catch (e) {
+            console.error("Error during initial utility check for persistent hashing:", e);
+            this._canUsePersistentHashing = false; // Ensure it's false on any error
+        }
     }
 
     /**
@@ -45,8 +69,39 @@ class proc extends ThirdPartyAppProcess {
             this.profilePicture = null;
         }
 
-        // Check if a lock screen password is set. This relies solely on _localPassword.
-        const passwordExists = !!this._localPassword;
+        // Attempt to load the hashed lock screen password from file if persistent hashing is enabled
+        if (this._canUsePersistentHashing && this._lockScreenPasswordFilePath) {
+            try {
+                // Ensure fs.readFile is callable before attempting to use it
+                if (this.fs && typeof this.fs.readFile === 'function') {
+                    const fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
+                    if (fileContent) {
+                        // Ensure util.arrayToText is callable
+                        if (typeof util !== 'undefined' && typeof util.arrayToText === 'function') {
+                            this._localPasswordHash = util.arrayToText(new Uint8Array(fileContent));
+                            console.log("Loaded hashed lock screen password from file.");
+                        } else {
+                            console.warn("util.arrayToText is not available. Cannot process loaded password hash.");
+                            this._localPasswordHash = null; // Invalidate hash if utility is missing
+                        }
+                    }
+                } else {
+                    console.warn("this.fs.readFile is not available. Cannot load persistent password.");
+                    this._canUsePersistentHashing = false; // Disable persistent hashing if read fails
+                }
+            } catch (e) {
+                console.warn("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error):", e);
+                this._localPasswordHash = null; // Invalidate hash
+                this._canUsePersistentHashing = false; // Disable persistent hashing on read error
+            }
+        } else if (this._canUsePersistentHashing && !this._lockScreenPasswordFilePath) {
+            console.warn("UserPaths.Configuration was not available to set password file path. Disabling persistent hashing.");
+            this._canUsePersistentHashing = false;
+        }
+
+
+        // Determine if a password already exists (either hashed or in-memory)
+        const passwordExists = this._canUsePersistentHashing ? !!this._localPasswordHash : !!this._localPassword;
 
         if (!passwordExists) {
             // If no lock screen password is set, show the setup dialog
@@ -148,16 +203,42 @@ class proc extends ThirdPartyAppProcess {
             }
 
             try {
-                // Store the lock screen password locally. This does NOT affect the user's account password.
-                this._localPassword = newPassword;
-                console.log("Lock screen password set locally.");
+                if (this._canUsePersistentHashing && this._lockScreenPasswordFilePath) {
+                    // Ensure util.sha256 and util.textToBlob are callable
+                    if (typeof util !== 'undefined' && typeof util.sha256 === 'function' && typeof util.textToBlob === 'function') {
+                        const hashedPassword = await util.sha256(newPassword);
+                        this._localPasswordHash = hashedPassword;
+                        console.log("Lock screen password hashed and stored locally.");
+
+                        // Ensure fs.writeFile is callable
+                        if (this.fs && typeof this.fs.writeFile === 'function') {
+                            const blob = util.textToBlob(hashedPassword, 'text/plain');
+                            await this.fs.writeFile(this._lockScreenPasswordFilePath, blob);
+                            console.log("Hashed lock screen password saved to file:", this._lockScreenPasswordFilePath);
+                        } else {
+                            console.error("this.fs.writeFile is not available. Cannot save persistent password.");
+                            this._canUsePersistentHashing = false; // Disable persistent hashing if write fails
+                            this._localPassword = newPassword; // Fallback to in-memory
+                        }
+                    } else {
+                        console.error("util.sha256 or util.textToBlob is not available. Cannot use persistent hashing.");
+                        this._canUsePersistentHashing = false; // Disable persistent hashing
+                        this._localPassword = newPassword; // Fallback to in-memory
+                    }
+                } else {
+                    // Fallback: store plaintext password in memory for the current session
+                    this._localPassword = newPassword;
+                    console.warn("Persistent hashing not available. Lock screen password stored in memory for this session.");
+                }
 
                 setupOverlay.remove(); // Remove the setup dialog
                 this.showPasswordOverlay(); // Show the normal lock screen
             } catch (e) {
-                errorDiv.textContent = 'Failed to set password. Please try again.';
+                errorDiv.textContent = 'Failed to set password. An internal error occurred. Please check console.';
                 errorDiv.style.display = 'block';
-                console.error("Error setting lock screen password:", e);
+                console.error("Error during password setup or file write:", e);
+                this._canUsePersistentHashing = false; // Ensure fallback if an error occurs during setup
+                this._localPassword = newPassword; // Ensure in-memory fallback is set even on error
             }
         };
 
@@ -187,8 +268,11 @@ class proc extends ThirdPartyAppProcess {
                          class="w-24 h-24 rounded-full object-cover bg-gray-700 mb-4"
                          onerror="this.src='https://placehold.co/96x96/222222/ffffff?text=User'; this.style.display='block';" />
                     <div class="text-white text-2xl font-semibold mb-4">${this.displayName || 'User'}</div>
+                    
+                    <!-- Single Password Field -->
                     <input id="lock-password" type="password" placeholder="Enter password"
                            class="p-3 text-base rounded-lg border-none mb-3 w-64 bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" autofocus />
+                    
                     <div class="flex space-x-3 mb-4">
                         <button id="unlock-btn"
                                 class="px-6 py-3 text-base rounded-lg border-none bg-blue-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-blue-700 shadow-md">
@@ -223,7 +307,7 @@ class proc extends ThirdPartyAppProcess {
 
         const unlockBtn = overlay.querySelector('#unlock-btn');
         const cancelBtn = overlay.querySelector('#cancel-btn');
-        const passwordInput = overlay.querySelector('#lock-password');
+        const passwordInput = overlay.querySelector('#lock-password'); // Single input field
         const errorDiv = overlay.querySelector('#unlock-error');
         const shutdownBtn = overlay.querySelector('#shutdown-btn');
         const logoffBtn = overlay.querySelector('#logoff-btn');
@@ -240,24 +324,62 @@ class proc extends ThirdPartyAppProcess {
                 return;
             }
 
-            // Validate against the local lock screen password
-            const valid = (password === this._localPassword);
+            let unlockedSuccessfully = false;
 
-            if (valid) {
-                this.unlocked = true;
-                overlay.remove(); // Remove the lock overlay
-                this.unlocking = false;
-                // Remove keydown listener after unlock (only if it was added)
-                if (this._showOverlayListener) {
-                    window.removeEventListener('keydown', this._showOverlayListener);
+            try {
+                if (this._canUsePersistentHashing && this._localPasswordHash) {
+                    // Try to hash the entered password
+                    if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
+                        const enteredPasswordHash = await util.sha256(password);
+                        if (enteredPasswordHash === this._localPasswordHash) {
+                            unlockedSuccessfully = true;
+                        }
+                    } else {
+                        console.error("util.sha256 is not available for validation. Cannot validate persistent hash.");
+                        // If hashing utility is missing, cannot validate persistent hash
+                        // Fallback logic will handle trying ArcOS account
+                    }
+                } else if (!this._canUsePersistentHashing && this._localPassword) {
+                    // Fallback: validate against the in-memory plaintext password
+                    if (password === this._localPassword) {
+                        unlockedSuccessfully = true;
+                    }
                 }
-                // Actually close the app after unlock (as per original logic)
-                if (typeof this.closeWindow === 'function') {
-                    this.closeWindow();
+
+                // If not unlocked yet, try validating against ArcOS account password
+                if (!unlockedSuccessfully && this.userDaemon && typeof this.userDaemon.validatePassword === 'function') {
+                    try {
+                        unlockedSuccessfully = await this.userDaemon.validatePassword(password);
+                        if (unlockedSuccessfully) {
+                            console.log("Unlocked using ArcOS account password.");
+                        }
+                    } catch (e) {
+                        console.error("Error validating ArcOS account password (userDaemon.validatePassword):", e);
+                        unlockedSuccessfully = false; // Ensure it's false on error
+                    }
                 }
-            } else {
-                errorDiv.textContent = 'Incorrect password.';
+
+                if (unlockedSuccessfully) {
+                    this.unlocked = true;
+                    overlay.remove(); // Remove the lock overlay
+                    this.unlocking = false;
+                    // Remove keydown listener after unlock (only if it was added)
+                    if (this._showOverlayListener) {
+                        window.removeEventListener('keydown', this._showOverlayListener);
+                    }
+                    // Actually close the app after unlock (as per original logic)
+                    if (typeof this.closeWindow === 'function') {
+                        this.closeWindow();
+                    }
+                } else {
+                    errorDiv.textContent = 'Incorrect password.';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (e) {
+                // Catch any unexpected errors during password validation (e.g., if util.sha256 itself fails unexpectedly)
+                errorDiv.textContent = 'An unexpected error occurred during password validation. Please check console for details.';
                 errorDiv.style.display = 'block';
+                console.error("Unhandled error during unlock attempt:", e);
             }
         };
 
@@ -268,7 +390,7 @@ class proc extends ThirdPartyAppProcess {
             // The spacebar listener remains active, so the overlay can be brought back up.
         };
 
-        // Power options handlers - now using this.userDaemon
+        // Power options handlers - using this.userDaemon
         shutdownBtn.onclick = async () => {
             if (this.userDaemon && typeof this.userDaemon.shutdown === 'function') {
                 await this.userDaemon.shutdown();
@@ -294,7 +416,7 @@ class proc extends ThirdPartyAppProcess {
             }
         };
 
-        // Allow pressing Enter to unlock
+        // Allow pressing Enter in the password field to trigger unlock
         passwordInput.onkeydown = (e) => {
             if (e.key === 'Enter') unlockBtn.click();
         };
@@ -366,9 +488,9 @@ class proc extends ThirdPartyAppProcess {
         }
 
         /**
-         * The main animation loop.
-         * Clears the canvas, draws and animates each curve.
-         */
+             * The main animation loop.
+             * Clears the canvas, draws and animates each curve.
+             */
         const animate = () => {
             if (this._disposed) return; // Stop animation if app is disposed
             ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the entire canvas
