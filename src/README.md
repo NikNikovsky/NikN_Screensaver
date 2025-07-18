@@ -1,5 +1,5 @@
-This is a demo more than anything.
+The password is in the application directory as a .hash file, therefore it is case sensitive.
 
-The password is anything you want (but you have to type *something* in, even if it's a space) for now.
+Alt + I for a secret thing (hopefully)
 
 To unlock press "Space".
