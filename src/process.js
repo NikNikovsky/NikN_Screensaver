@@ -17,26 +17,31 @@ class proc extends ThirdPartyAppProcess {
         this.displayName = null;    // User's display name
         this._showOverlayListener = null; // Listener for space key
 
-        // _localPasswordHash will store the SHA256 hash if persistent storage is available
-        this._localPasswordHash = null;
-        // _localPassword will store the plaintext password in memory if persistent storage is not available
-        this._localPassword = null;
+        this._localPasswordHash = null; // Stores SHA256 hash if persistent storage is used
+        this._localPassword = null;     // Stores plaintext password in-memory if persistent storage fails
 
-        this._lockScreenPasswordFilePath = null; // Will be set if persistent storage is available
+        // --- IMPORTANT CHANGE: Password file path now in workingDirectory ---
+        // Define the path for the lock screen password file within the app's working directory
+        this._lockScreenPasswordFilePath = this.workingDirectory + '/lockscreen.pwd.hash';
+        console.log("Lock screen password file path set to:", this._lockScreenPasswordFilePath);
+
         this._canUsePersistentHashing = false; // Determined during constructor/render
 
-        // Initial check for core utilities that determine persistent hashing capability
-        // This is a preliminary check. Actual usage will have more specific try/catch.
+        // --- Initial Feature Detection for Persistent Hashing ---
+        // This is a more robust check for all necessary globals and methods.
         try {
-            if (typeof util !== 'undefined' && !!util.sha256 &&
-                typeof util.arrayToText === 'function' && typeof util.textToBlob === 'function' &&
-                typeof UserPaths !== 'undefined' && typeof UserPaths.Configuration === 'string' &&
-                this.fs && !!this.fs.readFile && !!this.fs.writeFile) {
+            if (typeof util !== 'undefined' && typeof util.sha256 === 'function' &&
+                typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' && typeof convert.textToBlob === 'function' &&
+                this.fs && typeof this.fs.readFile === 'function' && typeof this.fs.writeFile === 'function') {
+
                 this._canUsePersistentHashing = true;
-                this._lockScreenPasswordFilePath = UserPaths.Configuration + '/lockscreen.pwd.hash';
                 console.log("Persistent hashing and file system operations are initially detected as available.");
             } else {
-                console.warn("Initial check: Some core utilities for persistent hashing (util.sha256, fs, UserPaths.Configuration) are not fully available. Will fall back to in-memory storage.");
+                console.warn("Initial check: Some core utilities for persistent hashing are not fully available. Will fall back to in-memory password storage.");
+                // Log specific missing components for debugging
+                if (typeof util === 'undefined' || typeof util.sha256 !== 'function') console.warn("  - util.sha256 missing or not a function.");
+                if (typeof convert === 'undefined' || typeof convert.arrayToText !== 'function' || typeof convert.textToBlob !== 'function') console.warn("  - convert.arrayToText or convert.textToBlob missing or not a function.");
+                if (!this.fs || typeof this.fs.readFile !== 'function' || typeof this.fs.writeFile !== 'function') console.warn("  - this.fs or its readFile/writeFile methods missing or not functions.");
             }
         } catch (e) {
             console.error("Error during initial utility check for persistent hashing:", e);
@@ -72,33 +77,17 @@ class proc extends ThirdPartyAppProcess {
         // Attempt to load the hashed lock screen password from file if persistent hashing is enabled
         if (this._canUsePersistentHashing && this._lockScreenPasswordFilePath) {
             try {
-                // Ensure fs.readFile is callable before attempting to use it
-                if (this.fs && typeof this.fs.readFile === 'function') {
-                    const fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
-                    if (fileContent) {
-                        // Ensure util.arrayToText is callable
-                        if (typeof util !== 'undefined' && typeof util.arrayToText === 'function') {
-                            this._localPasswordHash = util.arrayToText(new Uint8Array(fileContent));
-                            console.log("Loaded hashed lock screen password from file.");
-                        } else {
-                            console.warn("util.arrayToText is not available. Cannot process loaded password hash.");
-                            this._localPasswordHash = null; // Invalidate hash if utility is missing
-                        }
-                    }
-                } else {
-                    console.warn("this.fs.readFile is not available. Cannot load persistent password.");
-                    this._canUsePersistentHashing = false; // Disable persistent hashing if read fails
+                const fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
+                if (fileContent) {
+                    this._localPasswordHash = convert.arrayToText(new Uint8Array(fileContent));
+                    console.log("Loaded hashed lock screen password from file.");
                 }
             } catch (e) {
                 console.warn("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error):", e);
                 this._localPasswordHash = null; // Invalidate hash
                 this._canUsePersistentHashing = false; // Disable persistent hashing on read error
             }
-        } else if (this._canUsePersistentHashing && !this._lockScreenPasswordFilePath) {
-            console.warn("UserPaths.Configuration was not available to set password file path. Disabling persistent hashing.");
-            this._canUsePersistentHashing = false;
         }
-
 
         // Determine if a password already exists (either hashed or in-memory)
         const passwordExists = this._canUsePersistentHashing ? !!this._localPasswordHash : !!this._localPassword;
@@ -204,25 +193,17 @@ class proc extends ThirdPartyAppProcess {
 
             try {
                 if (this._canUsePersistentHashing && this._lockScreenPasswordFilePath) {
-                    // Ensure util.sha256 and util.textToBlob are callable
-                    if (typeof util !== 'undefined' && typeof util.sha256 === 'function' && typeof util.textToBlob === 'function') {
+                    try {
                         const hashedPassword = await util.sha256(newPassword);
                         this._localPasswordHash = hashedPassword;
                         console.log("Lock screen password hashed and stored locally.");
 
-                        // Ensure fs.writeFile is callable
-                        if (this.fs && typeof this.fs.writeFile === 'function') {
-                            const blob = util.textToBlob(hashedPassword, 'text/plain');
-                            await this.fs.writeFile(this._lockScreenPasswordFilePath, blob);
-                            console.log("Hashed lock screen password saved to file:", this._lockScreenPasswordFilePath);
-                        } else {
-                            console.error("this.fs.writeFile is not available. Cannot save persistent password.");
-                            this._canUsePersistentHashing = false; // Disable persistent hashing if write fails
-                            this._localPassword = newPassword; // Fallback to in-memory
-                        }
-                    } else {
-                        console.error("util.sha256 or util.textToBlob is not available. Cannot use persistent hashing.");
-                        this._canUsePersistentHashing = false; // Disable persistent hashing
+                        const blob = convert.textToBlob(hashedPassword, 'text/plain');
+                        await this.fs.writeFile(this._lockScreenPasswordFilePath, blob);
+                        console.log("Hashed lock screen password saved to file:", this._lockScreenPasswordFilePath);
+                    } catch (e) {
+                        console.error("Error during persistent password setup (hashing or file write):", e);
+                        this._canUsePersistentHashing = false; // Disable persistent hashing if error occurs during setup
                         this._localPassword = newPassword; // Fallback to in-memory
                     }
                 } else {
@@ -234,11 +215,9 @@ class proc extends ThirdPartyAppProcess {
                 setupOverlay.remove(); // Remove the setup dialog
                 this.showPasswordOverlay(); // Show the normal lock screen
             } catch (e) {
-                errorDiv.textContent = 'Failed to set password. An internal error occurred. Please check console.';
+                errorDiv.textContent = 'Failed to set password. An unexpected error occurred. Please check console.';
                 errorDiv.style.display = 'block';
-                console.error("Error during password setup or file write:", e);
-                this._canUsePersistentHashing = false; // Ensure fallback if an error occurs during setup
-                this._localPassword = newPassword; // Ensure in-memory fallback is set even on error
+                console.error("General error during password setup:", e);
             }
         };
 
@@ -263,7 +242,7 @@ class proc extends ThirdPartyAppProcess {
             // Tailwind CSS classes for styling
             overlay.className = 'fixed inset-0 bg-black bg-opacity-85 flex flex-col items-center justify-center z-10 font-inter';
             overlay.innerHTML = `
-                <div class="bg-gray-800 bg-opacity-90 p-8 rounded-2xl shadow-2xl flex flex-col items-center">
+                <div class="bg-gray-800 bg-opacity-90 p-8 rounded-2xl शैडो-2xl flex flex-col items-center">
                     <img src="${this.profilePicture || 'https://placehold.co/96x96/222222/ffffff?text=User'}" alt="Profile"
                          class="w-24 h-24 rounded-full object-cover bg-gray-700 mb-4"
                          onerror="this.src='https://placehold.co/96x96/222222/ffffff?text=User'; this.style.display='block';" />
@@ -328,7 +307,7 @@ class proc extends ThirdPartyAppProcess {
 
             try {
                 if (this._canUsePersistentHashing && this._localPasswordHash) {
-                    // Try to hash the entered password
+                    // Try to hash the entered password using util.sha256
                     if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
                         const enteredPasswordHash = await util.sha256(password);
                         if (enteredPasswordHash === this._localPasswordHash) {
@@ -376,7 +355,7 @@ class proc extends ThirdPartyAppProcess {
                     errorDiv.style.display = 'block';
                 }
             } catch (e) {
-                // Catch any unexpected errors during password validation (e.g., if util.sha256 itself fails unexpectedly)
+                // Catch any unexpected errors during password validation
                 errorDiv.textContent = 'An unexpected error occurred during password validation. Please check console for details.';
                 errorDiv.style.display = 'block';
                 console.error("Unhandled error during unlock attempt:", e);
