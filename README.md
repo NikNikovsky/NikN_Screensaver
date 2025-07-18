@@ -1,5 +1,3 @@
-This is a demo more than anything.
-
-The password is anything you want (but you have to type *something* in, even if it's a space) for now.
+You can now set your own password and it is stored in a hash file in the application/src directory
 
 To unlock press "Space".
