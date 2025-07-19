@@ -1,7 +1,7 @@
 // Assume loadHtml is a utility function that loads HTML content.
 // For this example, we'll define a simple body.html content directly.
 var htmlContent = `
-    <div id="app-container" style="width: 100vw; height: 100vh; overflow: hidden; position: relative; font-family: 'Inter', sans-serif;">
+    <div id="app-container" style="width: 100vw; height: 100vh; overflow: hidden; position: relative; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif">
         <canvas id="flurry-canvas" style="display: block;"></canvas>
     </div>
 `;
@@ -47,7 +47,7 @@ class proc extends ThirdPartyAppProcess {
         this._effectDismissListener = null; // Listener for dismissing effect 
 
         // Define file path for the main lock screen password within the app's working directory
-        this._lockScreenPasswordFilePath = this.workingDirectory + '/lockscreen.pwd.hash';
+        this._lockScreenPasswordFilePath = `U:/Config/NikN_Screensaver/lockscreen.pwd.hash`
         if (typeof this.Log === 'function') this.Log("Lock screen password file path set to: " + this._lockScreenPasswordFilePath, LogLevel.info);
 
         this._h = 0; // Determined during constructor/render 
@@ -226,23 +226,31 @@ class proc extends ThirdPartyAppProcess {
 
         var setupOverlay = document.createElement('div');
         setupOverlay.id = 'set-password-overlay';
-        setupOverlay.className = 'fixed inset-0 bg-black bg-opacity-85 flex flex-col items-center justify-center z-50 font-inter';
+        setupOverlay.style = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+        `;
         setupOverlay.innerHTML = `
-            <div class="bg-gray-800 bg-opacity-90 p-8 rounded-2xl shadow-2xl flex flex-col items-center">
-                <div class="text-white text-2xl font-semibold mb-6">Set Your Lock Screen Password</div>
-                <div class="text-gray-300 text-sm mb-4 text-center">
+            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+                <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 24px;">Set Your Lock Screen Password</div>
+                <div style="color: #d1d5db; font-size: 14px; margin-bottom: 16px; text-align: center;">
                     Please set a new password for this lock screen. It must be at least 4 characters long and contain no spaces.
                     This password is separate from your account password.
                 </div>
                 <input id="new-password-input" type="password" placeholder="New Password"
-                       class="p-3 text-base rounded-lg border-none mb-3 w-64 bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" autofocus />
+                       style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
+                       onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
                 <input id="confirm-password-input" type="password" placeholder="Confirm Password"
-                       class="p-3 text-base rounded-lg border-none mb-4 w-64 bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                       style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 16px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
+                       onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" />
                 <button id="set-password-btn"
-                        class="px-6 py-3 text-base rounded-lg border-none bg-blue-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-blue-700 shadow-md">
+                        style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                        onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
                     Set Password
                 </button>
-                <div id="set-password-error" class="text-red-400 mt-3 text-sm hidden"></div>
+                <div id="set-password-error" style="color: #f87171; margin-top: 12px; font-size: 14px; display: none;"></div>
             </div>
         `;
         body.appendChild(setupOverlay);
@@ -329,23 +337,31 @@ class proc extends ThirdPartyAppProcess {
 
         var inputOverlay = document.createElement('div');
         inputOverlay.id = 'secret-code-input-overlay';
-        inputOverlay.className = 'fixed inset-0 bg-black bg-opacity-85 flex flex-col items-center justify-center z-50 font-inter';
+        inputOverlay.style = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+        `;
         inputOverlay.innerHTML = `
-            <div class="bg-gray-800 bg-opacity-90 p-8 rounded-2xl shadow-2xl flex flex-col items-center">
-                <div class="text-white text-2xl font-semibold mb-6"></div> <!-- Title is blank -->
+            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+                <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 24px;"></div> <!-- Title is blank -->
                 <input id="secret-code-unlock-input" type="text" placeholder=""
-                       class="p-3 text-base rounded-lg border-none mb-3 w-64 bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" autofocus />
-                <div class="flex space-x-3 mb-4">
+                       style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
+                       onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
+                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
                     <button id="unlock-secret-code-btn"
-                            class="px-6 py-3 text-base rounded-lg border-none bg-blue-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-blue-700 shadow-md">
+                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                            onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
                         Unlock
                     </button>
                     <button id="cancel-secret-code-unlock-btn"
-                            class="px-6 py-3 text-base rounded-lg border-none bg-gray-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-gray-700 shadow-md">
+                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                            onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
                         Cancel
                     </button>
                 </div>
-                <div id="secret-code-unlock-error" class="text-red-400 mt-3 text-sm hidden"></div>
+                <div id="secret-code-unlock-error" style="color: #f87171; margin-top: 12px; font-size: 14px; display: none;"></div>
             </div>
         `;
         body.appendChild(inputOverlay);
@@ -481,42 +497,53 @@ class proc extends ThirdPartyAppProcess {
 
         var overlay = document.createElement('div');
         overlay.id = 'lock-overlay';
-        overlay.className = 'fixed inset-0 bg-black bg-opacity-85 flex flex-col items-center justify-center z-10 font-inter';
+         overlay.style = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 10; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+        `;
         overlay.innerHTML = `
-                <div class="bg-gray-800 bg-opacity-90 p-8 rounded-2xl shadow-2xl flex flex-col items-center">
+                <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
                     <img src="${this.profilePicture || 'https://placehold.co/96x96/222222/ffffff?text=User'}" alt="Profile"
-                         class="w-24 h-24 rounded-full object-cover bg-gray-700 mb-4"
+                         style="width: 96px; height: 96px; border-radius: 9999px; object-fit: cover; background-color: #4b5563; margin-bottom: 16px;"
                          onerror="this.src='https://placehold.co/96x96/222222/ffffff?text=User'; this.style.display='block';" />
-                    <div class="text-white text-2xl font-semibold mb-4">${this.displayName || 'User'}</div>
-                    
+                    <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 16px;">${this.displayName || 'User'}</div>
+
                     <!-- Single Password Field -->
                     <input id="lock-password" type="password" placeholder="Enter password"
-                           class="p-3 text-base rounded-lg border-none mb-3 w-64 bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500" autofocus />
-                    
-                    <div class="flex space-x-3 mb-4">
+                           style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
+                           onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
+
+                    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
                         <button id="unlock-btn"
-                                class="px-6 py-3 text-base rounded-lg border-none bg-blue-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-blue-700 shadow-md">
+                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
                             Unlock
                         </button>
                         <button id="cancel-btn"
-                                class="px-6 py-3 text-base rounded-lg border-none bg-gray-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-gray-700 shadow-md">
+                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
                             Cancel
                         </button>
                     </div>
-                    <div id="unlock-error" class="text-red-400 mt-2 text-sm hidden"></div>
+                    <div id="unlock-error" style="color: #f87171; margin-top: 8px; font-size: 14px; display: none;"></div>
 
                     <!-- Power Options -->
-                    <div class="absolute bottom-8 right-8 flex flex-col space-y-2">
+                    <div style="position: absolute; bottom: 32px; right: 32px; display: flex; flex-direction: column; gap: 8px;">
                         <button id="shutdown-btn"
-                                class="px-4 py-2 text-sm rounded-lg border-none bg-red-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-red-700 shadow-md">
+                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #dc2626; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#b91c1c';" onmouseout="this.style.backgroundColor='#dc2626';">
                             Shutdown
                         </button>
                         <button id="logoff-btn"
-                                class="px-4 py-2 text-sm rounded-lg border-none bg-yellow-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-yellow-700 shadow-md">
+                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #d97706; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#b45309';" onmouseout="this.style.backgroundColor='#d97706';">
                             Logoff
                         </button>
                         <button id="restart-btn"
-                                class="px-4 py-2 text-sm rounded-lg border-none bg-green-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-green-700 shadow-md">
+                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #16a34a; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#15803d';" onmouseout="this.style.backgroundColor='#16a34a';">
                             Restart
                         </button>
                     </div>
@@ -640,17 +667,23 @@ class proc extends ThirdPartyAppProcess {
 
         var imageOverlay = document.createElement('div');
         imageOverlay.id = 'image-display-overlay';
-        imageOverlay.className = 'fixed inset-0 bg-black bg-opacity-90 flex flex-col items-center justify-center z-50 font-inter';
+        imageOverlay.style = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.9);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+        `;
         imageOverlay.innerHTML = `
-            <div class="bg-gray-800 bg-opacity-90 p-8 rounded-2xl shadow-2xl flex flex-col items-center">
-                <div class="flex space-x-4 mb-6">
-                    <img src="${imageUrl1}" alt="Certificate 1" class="w-64 h-auto rounded-lg shadow-md object-contain"
+            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+                <div style="display: flex; gap: 16px; margin-bottom: 24px;">
+                    <img src="${imageUrl1}" alt="Certificate 1" style="width: 256px; height: auto; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); object-fit: contain;"
                          onerror="this.src='https://placehold.co/300x200/cccccc/000000?text=Image+Load+Error'; this.style.display='block';" />
-                    <img src="${imageUrl2}" alt="Certificate 2" class="w-64 h-auto rounded-lg shadow-md object-contain"
+                    <img src="${imageUrl2}" alt="Certificate 2" style="width: 256px; height: auto; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); object-fit: contain;"
                          onerror="this.src='https://placehold.co/300x200/999999/ffffff?text=Image+Load+Error'; this.style.display='block';" />
                 </div>
                 <button id="close-image-overlay-btn"
-                        class="px-6 py-3 text-base rounded-lg border-none bg-blue-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-blue-700 shadow-md">
+                        style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                        onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
                     Close
                 </button>
             </div>
@@ -682,17 +715,24 @@ class proc extends ThirdPartyAppProcess {
 
             var promptOverlay = document.createElement('div');
             promptOverlay.id = 'confirmation-prompt-overlay';
-            promptOverlay.className = 'fixed inset-0 bg-black bg-opacity-85 flex flex-col items-center justify-center z-50 font-inter';
+            promptOverlay.style = `
+                position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                background-color: rgba(0, 0, 0, 0.85);
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+            `;
             promptOverlay.innerHTML = `
-                <div class="bg-gray-800 bg-opacity-90 p-8 rounded-2xl shadow-2xl flex flex-col items-center">
-                    <div class="text-white text-2xl font-semibold mb-6">${message}</div>
-                    <div class="flex space-x-4">
+                <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+                    <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 24px;">${message}</div>
+                    <div style="display: flex; gap: 16px;">
                         <button id="yes-btn"
-                                class="px-6 py-3 text-base rounded-lg border-none bg-red-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-red-700 shadow-md">
+                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #dc2626; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#b91c1c';" onmouseout="this.style.backgroundColor='#dc2626';">
                             Yes
                         </button>
                         <button id="no-btn"
-                                class="px-6 py-3 text-base rounded-lg border-none bg-gray-600 text-white font-semibold cursor-pointer transition duration-200 hover:bg-gray-700 shadow-md">
+                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
                             No
                         </button>
                     </div>
@@ -823,7 +863,6 @@ class proc extends ThirdPartyAppProcess {
 
     /**
      * Starts the special code effect on the canvas.
-     * (Formerly startMatrixEffect)
      */
     _startEffectM() {
         this._m = 1; // Set effect active flag to true
@@ -887,8 +926,7 @@ class proc extends ThirdPartyAppProcess {
     }
 
     /**
-     * Stops the special falling code effect and cleans up.
-     * (Formerly stopMatrixEffect)
+     * Stops the special code effect and cleans up.
      */
     _stopEffectM() {
         this._m = 0; // Set effect active flag to false
@@ -910,16 +948,5 @@ class proc extends ThirdPartyAppProcess {
     }
 }
 
-// Ensure Tailwind CSS is loaded for styling
-var tailwindScript = document.createElement('script');
-tailwindScript.src = 'https://cdn.tailwindcss.com';
-document.head.appendChild(tailwindScript);
 
-// Set Inter font globally
-var fontLink = document.createElement('link');
-fontLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap';
-fontLink.rel = 'stylesheet';
-document.head.appendChild(fontLink);
-
-// Export the proc class
 return { proc };
