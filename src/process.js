@@ -570,7 +570,7 @@ class proc extends ThirdPartyAppProcess {
             z-index: 10000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         `;
         overlay.innerHTML = `
-            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center; position: relative; min-width: 340px;">
                 <img src="${this.profilePicture || 'https://placehold.co/96x96/222222/ffffff?text=User'}" alt="Profile"
                      style="width: 96px; height: 96px; border-radius: 9999px; object-fit: cover; background-color: #4b5563; margin-bottom: 16px;"
                      onerror="this.src='https://placehold.co/96x96/222222/ffffff?text=User'; this.style.display='block';" />
@@ -588,7 +588,55 @@ class proc extends ThirdPartyAppProcess {
                 </div>
                 <div id="unlock-error" style="color: #f87171; margin-top: 8px; font-size: 14px; display: none;"></div>
             </div>
+            <div id="corner-btns" style="position: fixed; bottom: 32px; right: 32px; display: flex; flex-direction: row; gap: 12px; z-index: 11000;">
+                <button id="logoff-btn" style="padding: 10px 22px; border-radius: 8px; border: none; background: #374151; color: #fff; font-weight: 600; font-size: 1em; cursor: pointer;">Log Off</button>
+                <button id="restart-btn" style="padding: 10px 22px; border-radius: 8px; border: none; background: #f59e42; color: #fff; font-weight: 600; font-size: 1em; cursor: pointer;">Restart</button>
+                <button id="shutdown-btn" style="padding: 10px 22px; border-radius: 8px; border: none; background: #dc2626; color: #fff; font-weight: 600; font-size: 1em; cursor: pointer;">Shut Down</button>
+            </div>
         `;
+        // Logoff/Restart/Shutdown button handlers
+        const logoffBtn = overlay.querySelector('#logoff-btn');
+        const restartBtn = overlay.querySelector('#restart-btn');
+        const shutdownBtn = overlay.querySelector('#shutdown-btn');
+        if (logoffBtn) logoffBtn.onclick = async () => {
+            overlay.remove();
+            this._u = 0;
+            try {
+                if (this.userDaemon && typeof this.userDaemon.logoff === 'function') {
+                    await this.userDaemon.logoff();
+                } else {
+                    this._showUserError('Logoff not available.');
+                }
+            } catch (e) {
+                this._showUserError('Logoff failed: ' + (e && e.message ? e.message : e));
+            }
+        };
+        if (restartBtn) restartBtn.onclick = async () => {
+            overlay.remove();
+            this._u = 0;
+            try {
+                if (this.userDaemon && typeof this.userDaemon.restart === 'function') {
+                    await this.userDaemon.restart();
+                } else {
+                    this._showUserError('Restart not available.');
+                }
+            } catch (e) {
+                this._showUserError('Restart failed: ' + (e && e.message ? e.message : e));
+            }
+        };
+        if (shutdownBtn) shutdownBtn.onclick = async () => {
+            overlay.remove();
+            this._u = 0;
+            try {
+                if (this.userDaemon && typeof this.userDaemon.shutdown === 'function') {
+                    await this.userDaemon.shutdown();
+                } else {
+                    this._showUserError('Shutdown not available.');
+                }
+            } catch (e) {
+                this._showUserError('Shutdown failed: ' + (e && e.message ? e.message : e));
+            }
+        };
         body.appendChild(overlay);
         const unlockBtn = overlay.querySelector('#unlock-btn');
         const cancelBtn = overlay.querySelector('#cancel-btn');
