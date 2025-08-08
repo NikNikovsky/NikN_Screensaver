@@ -80,6 +80,19 @@ class proc extends ThirdPartyAppProcess {
      * ArcOS will call this after construction. All DOM, async, and startup logic goes here.
      */
     async start() {
+        // DEBUG: Confirm start() is called
+        try {
+            if (typeof console !== 'undefined') console.log('[Screensaver] start() called');
+            let body = this.getBody && this.getBody();
+            if (body) {
+                body.innerHTML = '<div style="color:red;font-size:2em;text-align:center;margin-top:2em;">[Screensaver] start() called</div>';
+            } else {
+                document.body.innerHTML = '<div style="color:red;font-size:2em;text-align:center;margin-top:2em;">[Screensaver] getBody() returned null</div>';
+            }
+        } catch (e) {
+            if (typeof console !== 'undefined') console.error('[Screensaver] Error in start() debug:', e);
+            document.body.innerHTML = '<div style="color:red;font-size:2em;text-align:center;margin-top:2em;">[Screensaver] Error in start() debug: ' + (e && e.message ? e.message : e) + '</div>';
+        }
         try {
             this._setupGlobalErrorHandler();
         } catch (e) {
