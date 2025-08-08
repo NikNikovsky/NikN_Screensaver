@@ -77,7 +77,17 @@ class proc extends ThirdPartyAppProcess {
         // --- Registering Alt+I accelerator using acceleratorStore ---
         if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
             this.acceleratorStore.push({
-                // You may want to add accelerator definitions here if needed
+                alt: true,
+                key: "i",
+                action: (proc, event) => {
+                    if (this._u === 0 && this._l === 0) {
+                        this.showSecretCodeInputOverlay();
+                   }
+
+                },
+
+
+                global: true
             });
         }
 
