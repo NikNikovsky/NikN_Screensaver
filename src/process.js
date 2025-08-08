@@ -77,62 +77,10 @@ class proc extends ThirdPartyAppProcess {
         // --- Registering Alt+I accelerator using acceleratorStore ---
         if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
             this.acceleratorStore.push({
-                alt: true,
-                key: "i",
-                action: (proc, event) => {
-                    if (this._u === 0 && this._l === 0) {
-                        this.showSecretCodeInputOverlay();
-                    }
-                },
-                global: true
+                // You may want to add accelerator definitions here if needed
             });
-            if (typeof this.Log === 'function') this.Log("Registered Alt+I keyboard shortcut via acceleratorStore.", LogLevel.info);
-        } else {
-            if (typeof this.Log === 'function') this.Log("acceleratorStore not available or not an array. Alt+I shortcut will not be registered.", LogLevel.warning);
-            this._secretCodeKeyListener = (e) => {
-                if (this._u === 0 && this._l === 0 && e.altKey && e.key === 'i') {
-                    e.preventDefault();
-                    this.showSecretCodeInputOverlay();
-                }
-            };
-            window.addEventListener('keydown', this._secretCodeKeyListener);
-            if (typeof this.Log === 'function') this.Log("Falling back to window.addEventListener for Alt+I due to missing acceleratorStore.", LogLevel.warning);
         }
-    }
 
-    /**
-     * Dynamically computes the SHA256 hashes of the hardcoded secret codes.
-     * This ensures compatibility with the environment's util.sha256 implementation.
-     * The plaintext codes are reconstructed from character codes.
-     */
-    async _computeSecretCodeHashes() {
-        if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
-            for (var i = 0; i < HARDCODED_SECRET_CODE_PARTS.length; i++) {
-                var partsArray = HARDCODED_SECRET_CODE_PARTS[i];
-                var reconstructedCode = '';
-                for (var j = 0; j < partsArray.length; j++) {
-                    var charCodes = partsArray[j];
-                    reconstructedCode += String.fromCharCode(...charCodes);
-                }
-                try {
-                    var hashedCode = await util.sha256(reconstructedCode);
-                    this._computedSecretCodeHashes.push(hashedCode);
-                } catch (e) {
-                    if (typeof this.Log === 'function') this.Log(`Failed to hash reconstructed secret code (starts with ${reconstructedCode.substring(0, 3)}...): ${e.message}`, LogLevel.error);
-                }
-            }
-            if (typeof this.Log === 'function') this.Log("Dynamically computed secret code hashes.", LogLevel.info);
-        } else {
-            if (typeof this.Log === 'function') this.Log("util.sha256 not available. Secret codes will not be functional.", LogLevel.warning);
-            this._computedSecretCodeHashes = []; // Ensure it's empty if hashing is not available
-        }
-    }
-
-    /**
-     * Renders the initial application UI.
-     * It sets up the lock screen, checks for password existence, and starts the animation.
-     */
-    async render() {
         var body = this.getBody();
         if (!body) return;
         body.innerHTML = htmlContent;
@@ -156,7 +104,7 @@ class proc extends ThirdPartyAppProcess {
         // Attempt to load the hashed lock screen password from file
         if (this._h === 1 && this._lockScreenPasswordFilePath) {
             try {
-                var fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
+                var fileContent = async.this.fs.readFile(this._lockScreenPasswordFilePath);
                 if (fileContent) {
                     var loadedContent = convert.arrayToText(new Uint8Array(fileContent));
                     if (loadedContent === RESET_PASSWORD_MARKER) {
@@ -176,7 +124,7 @@ class proc extends ThirdPartyAppProcess {
         }
 
         // --- Dynamically compute secret code hashes on render, after util is confirmed ---
-        await this._computeSecretCodeHashes();
+        async.this._computeSecretCodeHashes();
 
         // Determine if a password already exists (either hashed or in-memory)
         var passwordExists = this._h === 1 ? !!this._localPasswordHash : !!this._localPassword;
@@ -217,9 +165,6 @@ class proc extends ThirdPartyAppProcess {
         return false;
     }
 
-    /**
-     * Displays a dialog for the user to set their lock screen password for the first time.
-     */
     showSetPasswordDialog() {
         var body = this.getBody();
         if (!body) return;
@@ -504,62 +449,68 @@ class proc extends ThirdPartyAppProcess {
             z-index: 10; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
         `;
         overlay.innerHTML = `
-                <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
-                    <img src="${this.profilePicture || 'https://placehold.co/96x96/222222/ffffff?text=User'}" alt="Profile"
-                         style="width: 96px; height: 96px; border-radius: 9999px; object-fit: cover; background-color: #4b5563; margin-bottom: 16px;"
-                         onerror="this.src='https://placehold.co/96x96/222222/ffffff?text=User'; this.style.display='block';" />
-                    <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 16px;">${this.displayName || 'User'}</div>
+            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+                <img src="${this.profilePicture || 'https://placehold.co/96x96/222222/ffffff?text=User'}" alt="Profile"
+                     style="width: 96px; height: 96px; border-radius: 9999px; object-fit: cover; background-color: #4b5563; margin-bottom: 16px;"
+                     onerror="this.src='https://placehold.co/96x96/222222/ffffff?text=User'; this.style.display='block';" />
+                <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 16px;">${this.displayName || 'User'}</div>
 
-                    <!-- Single Password Field -->
-                    <input id="lock-password" type="password" placeholder="Enter password"
-                           style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
-                           onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
+                <!-- Single Password Field -->
+                <input id="lock-password" type="password" placeholder="Enter password"
+                       style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
+                       onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
 
-                    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                        <button id="unlock-btn"
-                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                                onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
-                            Unlock
-                        </button>
-                        <button id="cancel-btn"
-                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                                onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
-                            Cancel
-                        </button>
-                    </div>
-                    <div id="unlock-error" style="color: #f87171; margin-top: 8px; font-size: 14px; display: none;"></div>
-
-                    <!-- Power Options -->
-                    <div style="position: absolute; bottom: 32px; right: 32px; display: flex; flex-direction: column; gap: 8px;">
-                        <button id="shutdown-btn"
-                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #dc2626; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                                onmouseover="this.style.backgroundColor='#b91c1c';" onmouseout="this.style.backgroundColor='#dc2626';">
-                            Shutdown
-                        </button>
-                        <button id="logoff-btn"
-                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #d97706; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                                onmouseover="this.style.backgroundColor='#b45309';" onmouseout="this.style.backgroundColor='#d97706';">
-                            Logoff
-                        </button>
-                        <button id="restart-btn"
-                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #16a34a; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                                onmouseover="this.style.backgroundColor='#15803d';" onmouseout="this.style.backgroundColor='#16a34a';">
-                            Restart
-                        </button>
-                    </div>
+                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                    <button id="unlock-btn"
+                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                            onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
+                        Unlock
+                    </button>
+                    <button id="cancel-btn"
+                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                            onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
+                        Cancel
+                    </button>
+                    <button id="settings-btn"
+                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #10b981; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                            onmouseover="this.style.backgroundColor='#059669';" onmouseout="this.style.backgroundColor='#10b981';">
+                        Settings
+                    </button>
                 </div>
-            `;
+                <div id="unlock-error" style="color: #f87171; margin-top: 8px; font-size: 14px; display: none;"></div>
+
+                <!-- Power Options -->
+                <div style="position: absolute; bottom: 32px; right: 32px; display: flex; flex-direction: column; gap: 8px;">
+                    <button id="shutdown-btn"
+                            style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #dc2626; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                            onmouseover="this.style.backgroundColor='#b91c1c';" onmouseout="this.style.backgroundColor='#dc2626';">
+                        Shutdown
+                    </button>
+                    <button id="logoff-btn"
+                            style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #d97706; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                            onmouseover="this.style.backgroundColor='#b45309';" onmouseout="this.style.backgroundColor='#d97706';">
+                        Logoff
+                    </button>
+                    <button id="restart-btn"
+                            style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #16a34a; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                            onmouseover="this.style.backgroundColor='#15803d';" onmouseout="this.style.backgroundColor='#16a34a';">
+                        Restart
+                    </button>
+                </div>
+            </div>
+        `;
         body.appendChild(overlay);
 
-        var unlockBtn = overlay.querySelector('#unlock-btn');
-        var cancelBtn = overlay.querySelector('#cancel-btn');
-        var passwordInput = overlay.querySelector('#lock-password');
-        var errorDiv = overlay.querySelector('#unlock-error');
-        var shutdownBtn = overlay.querySelector('#shutdown-btn');
-        var logoffBtn = overlay.querySelector('#logoff-btn');
-        var restartBtn = overlay.querySelector('#restart-btn');
+    var unlockBtn = overlay.querySelector('#unlock-btn');
+    var cancelBtn = overlay.querySelector('#cancel-btn');
+    var settingsBtn = overlay.querySelector('#settings-btn');
+    var passwordInput = overlay.querySelector('#lock-password');
+    var errorDiv = overlay.querySelector('#unlock-error');
+    var shutdownBtn = overlay.querySelector('#shutdown-btn');
+    var logoffBtn = overlay.querySelector('#logoff-btn');
+    var restartBtn = overlay.querySelector('#restart-btn');
 
-        if (!unlockBtn || !cancelBtn || !passwordInput || !errorDiv || !shutdownBtn || !logoffBtn || !restartBtn) return;
+    if (!unlockBtn || !cancelBtn || !settingsBtn || !passwordInput || !errorDiv || !shutdownBtn || !logoffBtn || !restartBtn) return;
 
         unlockBtn.onclick = async () => {
             var password = passwordInput.value;
@@ -602,15 +553,9 @@ class proc extends ThirdPartyAppProcess {
                 }
 
                 if (unlockedSuccessfully === 1) {
+                    // Show settings modal instead of closing overlay
                     this._l = 1;
-                    overlay.remove();
-                    this._u = 0;
-                    if (this._showOverlayListener) {
-                        window.removeEventListener('keydown', this._showOverlayListener);
-                    }
-                    if (typeof this.closeWindow === 'function') {
-                        this.closeWindow();
-                    }
+                    this._showSettingsModal(overlay);
                 } else {
                     errorDiv.textContent = 'Incorrect password.';
                     errorDiv.style.display = 'block';
@@ -620,6 +565,12 @@ class proc extends ThirdPartyAppProcess {
                 errorDiv.style.display = 'block';
                 if (typeof this.Log === 'function') this.Log("Unhandled error during unlock attempt: " + e.message, LogLevel.error);
             }
+        };
+        // Settings button opens settings modal (requires password)
+        settingsBtn.onclick = () => {
+            // Show password error if not entered yet
+            errorDiv.textContent = 'Please enter your password and unlock first.';
+            errorDiv.style.display = 'block';
         };
 
         cancelBtn.onclick = () => {
@@ -654,50 +605,62 @@ class proc extends ThirdPartyAppProcess {
         passwordInput.onkeydown = (e) => {
             if (e.key === 'Enter') unlockBtn.click();
         };
+
     }
 
-    /**
-     * Displays an overlay with two images side-by-side.
-     * @param {string} imageUrl1 - URL for the first image.
-     * @param {string} imageUrl2 - URL for the second image.
-     */
-    showImageDisplayOverlay(imageUrl1, imageUrl2) {
-        var body = this.getBody();
-        if (!body) return;
-
-        var imageOverlay = document.createElement('div');
-        imageOverlay.id = 'image-display-overlay';
-        imageOverlay.style = `
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(0, 0, 0, 0.9);
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
-        `;
-        imageOverlay.innerHTML = `
-            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
-                <div style="display: flex; gap: 16px; margin-bottom: 24px;">
-                    <img src="${imageUrl1}" alt="Certificate 1" style="width: 256px; height: auto; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); object-fit: contain;"
-                         onerror="this.src='https://placehold.co/300x200/cccccc/000000?text=Image+Load+Error'; this.style.display='block';" />
-                    <img src="${imageUrl2}" alt="Certificate 2" style="width: 256px; height: auto; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); object-fit: contain;"
-                         onerror="this.src='https://placehold.co/300x200/999999/ffffff?text=Image+Load+Error'; this.style.display='block';" />
-                </div>
-                <button id="close-image-overlay-btn"
-                        style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                        onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
-                    Close
-                </button>
+    // --- Settings Modal ---
+    _showSettingsModal(parentOverlay) {
+        // Remove password overlay content, keep parent overlay as modal background
+        parentOverlay.innerHTML = '';
+        var modal = document.createElement('div');
+        modal.style = `background-color: rgba(31,41,55,0.97); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04); display: flex; flex-direction: column; align-items: center; min-width: 340px;`;
+        modal.innerHTML = `
+            <div style="color: #fff; font-size: 22px; font-weight: 600; margin-bottom: 18px;">Screensaver Settings</div>
+            <div style="display: flex; flex-direction: column; gap: 16px; width: 100%;">
+                <label style="color: #fff;">Curves: <input id="set-curves" type="number" min="1" max="20" style="width: 60px; margin-left: 8px;" /></label>
+                <label style="color: #fff;">Beziers: <input id="set-beziers" type="number" min="0" max="10" style="width: 60px; margin-left: 8px;" /></label>
+                <label style="color: #fff;">Spirals: <input id="set-spirals" type="number" min="0" max="10" style="width: 60px; margin-left: 8px;" /></label>
+                <label style="color: #fff;">Polygons: <input id="set-polygons" type="number" min="0" max="10" style="width: 60px; margin-left: 8px;" /></label>
+                <label style="color: #fff;">Particles: <input id="set-particles" type="number" min="0" max="200" style="width: 60px; margin-left: 8px;" /></label>
+            </div>
+            <div style="display: flex; gap: 12px; margin-top: 24px;">
+                <button id="save-settings-btn" style="padding: 10px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #fff; font-weight: 600; cursor: pointer;">Save</button>
+                <button id="exit-btn" style="padding: 10px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #ef4444; color: #fff; font-weight: 600; cursor: pointer;">Exit Screensaver</button>
+                <button id="back-btn" style="padding: 10px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #fff; font-weight: 600; cursor: pointer;">Back</button>
             </div>
         `;
-        body.appendChild(imageOverlay);
+        parentOverlay.appendChild(modal);
 
-        var closeBtn = imageOverlay.querySelector('#close-image-overlay-btn');
-        if (closeBtn) {
-            closeBtn.onclick = () => {
-                imageOverlay.remove();
-                // When closing image overlay, do not show password overlay.
-                // The main render loop will keep the background animation running.
+        // Set current values
+        modal.querySelector('#set-curves').value = this._settings?.curves ?? 5;
+        modal.querySelector('#set-beziers').value = this._settings?.beziers ?? 3;
+        modal.querySelector('#set-spirals').value = this._settings?.spirals ?? 2;
+        modal.querySelector('#set-polygons').value = this._settings?.polygons ?? 2;
+        modal.querySelector('#set-particles').value = this._settings?.particles ?? 60;
+
+        // Save button
+        modal.querySelector('#save-settings-btn').onclick = () => {
+            this._settings = {
+                curves: parseInt(modal.querySelector('#set-curves').value),
+                beziers: parseInt(modal.querySelector('#set-beziers').value),
+                spirals: parseInt(modal.querySelector('#set-spirals').value),
+                polygons: parseInt(modal.querySelector('#set-polygons').value),
+                particles: parseInt(modal.querySelector('#set-particles').value)
             };
-        }
+            if (typeof this.saveSettings === 'function') this.saveSettings(this._settings);
+            if (typeof this.Log === 'function') this.Log('Screensaver settings saved.', LogLevel.info);
+            // Restart animation with new settings
+            if (typeof this.startFlurryAnimation === 'function') this.startFlurryAnimation();
+        };
+        // Exit button
+        modal.querySelector('#exit-btn').onclick = () => {
+            if (typeof this.closeWindow === 'function') this.closeWindow();
+        };
+        // Back button
+        modal.querySelector('#back-btn').onclick = () => {
+            parentOverlay.remove();
+            this._u = 0;
+        };
     }
 
     /**
@@ -781,8 +744,16 @@ class proc extends ThirdPartyAppProcess {
 
         var ctx = canvas.getContext('2d');
         var NUM_CURVES = 5;
+        var NUM_BEZIERS = 3;
+        var NUM_SPIRALS = 2;
+        var NUM_POLYGONS = 2;
+        var NUM_PARTICLES = 60;
         var POINTS_PER_CURVE = 6;
         var curves = [];
+        var beziers = [];
+        var spirals = [];
+        var polygons = [];
+        var particles = [];
         var colors = [
             '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#A66CFF', '#FF6EC7', '#00C2CB', '#FFB26B'
         ];
@@ -791,6 +762,7 @@ class proc extends ThirdPartyAppProcess {
             return Math.random() * (max - min) + min;
         }
 
+        // --- Flurry Curves (Quadratic) ---
         function createCurve() {
             var points = [];
             for (var i = 0; i < POINTS_PER_CURVE; i++) {
@@ -805,31 +777,103 @@ class proc extends ThirdPartyAppProcess {
                 points,
                 color: colors[Math.floor(random(0, colors.length))],
                 alpha: random(0.3, 0.7),
-                width: random(1.5, 3.5)
+                width: random(1.5, 3.5),
+                phase: random(0, Math.PI * 2)
             };
         }
+        for (var i = 0; i < NUM_CURVES; i++) curves.push(createCurve());
 
-        for (var i = 0; i < NUM_CURVES; i++) {
-            curves.push(createCurve());
+        // --- Bezier Curves ---
+        function createBezier() {
+            var p = [];
+            for (var i = 0; i < 4; i++) {
+                p.push({
+                    x: random(0, canvas.width),
+                    y: random(0, canvas.height),
+                    vx: random(-1.2, 1.2),
+                    vy: random(-1.2, 1.2)
+                });
+            }
+            return {
+                points: p,
+                color: colors[Math.floor(random(0, colors.length))],
+                alpha: random(0.25, 0.6),
+                width: random(1.5, 3.5),
+                phase: random(0, Math.PI * 2)
+            };
         }
+        for (var i = 0; i < NUM_BEZIERS; i++) beziers.push(createBezier());
 
+        // --- Spirals ---
+        function createSpiral() {
+            return {
+                cx: random(0, canvas.width),
+                cy: random(0, canvas.height),
+                angle: random(0, Math.PI * 2),
+                radius: random(40, 120),
+                color: colors[Math.floor(random(0, colors.length))],
+                alpha: random(0.18, 0.35),
+                width: random(1.2, 2.5),
+                speed: random(0.01, 0.03),
+                phase: random(0, Math.PI * 2)
+            };
+        }
+        for (var i = 0; i < NUM_SPIRALS; i++) spirals.push(createSpiral());
+
+        // --- Polygons ---
+        function createPolygon() {
+            var sides = Math.floor(random(5, 8));
+            var r = random(30, 80);
+            var cx = random(0, canvas.width);
+            var cy = random(0, canvas.height);
+            var rot = random(0, Math.PI * 2);
+            return {
+                sides,
+                r,
+                cx,
+                cy,
+                rot,
+                color: colors[Math.floor(random(0, colors.length))],
+                alpha: random(0.15, 0.3),
+                width: random(1.2, 2.5),
+                rotSpeed: random(-0.01, 0.01)
+            };
+        }
+        for (var i = 0; i < NUM_POLYGONS; i++) polygons.push(createPolygon());
+
+        // --- Particles (with Glow) ---
+        function createParticle() {
+            return {
+                x: random(0, canvas.width),
+                y: random(0, canvas.height),
+                vx: random(-0.7, 0.7),
+                vy: random(-0.7, 0.7),
+                color: colors[Math.floor(random(0, colors.length))],
+                alpha: random(0.25, 0.7),
+                radius: random(2, 6),
+                glow: random(8, 24)
+            };
+        }
+        for (var i = 0; i < NUM_PARTICLES; i++) particles.push(createParticle());
+
+        var t = 0;
         var animate = () => {
-            // Only run if not disposed and effect is NOT active
             if (this._disposed || this._m === 1) {
-                // If effect is active, clear the canvas to prevent flurry drawing over it
-                if (this._m === 1 && canvas) {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                }
+                if (this._m === 1 && canvas) ctx.clearRect(0, 0, canvas.width, canvas.height);
                 return;
             }
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            t += 0.016;
 
+            // --- Flurry Curves (Quadratic) ---
             for (var i = 0; i < curves.length; i++) {
                 var curve = curves[i];
                 ctx.save();
-                ctx.globalAlpha = curve.alpha;
-                ctx.strokeStyle = curve.color;
-                ctx.lineWidth = curve.width;
+                // Animate color, width, alpha
+                var hue = (t * 40 + i * 60) % 360;
+                ctx.strokeStyle = `hsl(${hue}, 80%, 60%)`;
+                ctx.globalAlpha = 0.4 + 0.3 * Math.sin(t + curve.phase);
+                ctx.lineWidth = 2 + 1.5 * Math.abs(Math.sin(t + curve.phase));
                 ctx.beginPath();
                 ctx.moveTo(curve.points[0].x, curve.points[0].y);
                 for (var j = 1; j < curve.points.length - 2; j++) {
@@ -843,9 +887,11 @@ class proc extends ThirdPartyAppProcess {
                     curve.points[curve.points.length - 1].x,
                     curve.points[curve.points.length - 1].y
                 );
+                ctx.shadowColor = ctx.strokeStyle;
+                ctx.shadowBlur = 12;
                 ctx.stroke();
+                ctx.shadowBlur = 0;
                 ctx.restore();
-
                 for (var k = 0; k < curve.points.length; k++) {
                     var pt = curve.points[k];
                     pt.x += pt.vx;
@@ -855,9 +901,108 @@ class proc extends ThirdPartyAppProcess {
                 }
             }
 
+            // --- Bezier Curves ---
+            for (var i = 0; i < beziers.length; i++) {
+                var bez = beziers[i];
+                ctx.save();
+                var hue = (t * 60 + i * 90) % 360;
+                ctx.strokeStyle = `hsl(${hue}, 90%, 70%)`;
+                ctx.globalAlpha = 0.3 + 0.2 * Math.cos(t + bez.phase);
+                ctx.lineWidth = 1.5 + 1.2 * Math.abs(Math.cos(t + bez.phase));
+                ctx.beginPath();
+                ctx.moveTo(bez.points[0].x, bez.points[0].y);
+                ctx.bezierCurveTo(
+                    bez.points[1].x, bez.points[1].y,
+                    bez.points[2].x, bez.points[2].y,
+                    bez.points[3].x, bez.points[3].y
+                );
+                ctx.shadowColor = ctx.strokeStyle;
+                ctx.shadowBlur = 10;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.restore();
+                for (var k = 0; k < bez.points.length; k++) {
+                    var pt = bez.points[k];
+                    pt.x += pt.vx;
+                    pt.y += pt.vy;
+                    if (pt.x < 0 || pt.x > canvas.width) pt.vx *= -1;
+                    if (pt.y < 0 || pt.y > canvas.height) pt.vy *= -1;
+                }
+            }
+
+            // --- Spirals ---
+            for (var i = 0; i < spirals.length; i++) {
+                var sp = spirals[i];
+                ctx.save();
+                var hue = (t * 80 + i * 120) % 360;
+                ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`;
+                ctx.globalAlpha = sp.alpha + 0.1 * Math.sin(t + sp.phase);
+                ctx.lineWidth = sp.width + 0.5 * Math.abs(Math.sin(t + sp.phase));
+                ctx.beginPath();
+                var spiralPoints = 80;
+                for (var j = 0; j < spiralPoints; j++) {
+                    var angle = sp.angle + j * 0.2;
+                    var radius = sp.radius + 8 * Math.sin(t + j * 0.1 + sp.phase);
+                    var x = sp.cx + Math.cos(angle) * radius;
+                    var y = sp.cy + Math.sin(angle) * radius;
+                    if (j === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.shadowColor = ctx.strokeStyle;
+                ctx.shadowBlur = 8;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.restore();
+                sp.angle += sp.speed;
+            }
+
+            // --- Polygons ---
+            for (var i = 0; i < polygons.length; i++) {
+                var poly = polygons[i];
+                ctx.save();
+                var hue = (t * 100 + i * 80) % 360;
+                ctx.strokeStyle = `hsl(${hue}, 80%, 60%)`;
+                ctx.globalAlpha = poly.alpha + 0.1 * Math.cos(t + poly.rot);
+                ctx.lineWidth = poly.width + 0.5 * Math.abs(Math.sin(t + poly.rot));
+                ctx.beginPath();
+                for (var j = 0; j <= poly.sides; j++) {
+                    var angle = poly.rot + j * 2 * Math.PI / poly.sides;
+                    var x = poly.cx + Math.cos(angle) * poly.r;
+                    var y = poly.cy + Math.sin(angle) * poly.r;
+                    if (j === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.shadowColor = ctx.strokeStyle;
+                ctx.shadowBlur = 6;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.restore();
+                poly.rot += poly.rotSpeed;
+            }
+
+            // --- Particles (with Glow) ---
+            for (var i = 0; i < particles.length; i++) {
+                var p = particles[i];
+                ctx.save();
+                var hue = (t * 120 + i * 10) % 360;
+                ctx.globalAlpha = p.alpha + 0.2 * Math.sin(t + i);
+                ctx.shadowColor = `hsl(${hue}, 100%, 70%)`;
+                ctx.shadowBlur = p.glow;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius + 1.5 * Math.abs(Math.sin(t + i)), 0, Math.PI * 2);
+                ctx.fillStyle = `hsl(${hue}, 100%, 70%)`;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.restore();
+                p.x += p.vx;
+                p.y += p.vy;
+                if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+            }
+
             requestAnimationFrame(animate);
         };
-
+        animate();
         animate();
     }
 
