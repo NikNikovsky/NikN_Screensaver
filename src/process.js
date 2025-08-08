@@ -28,6 +28,31 @@ var LogLevel = {
 // This class extends ThirdPartyAppProcess, which is assumed to provide
 // methods like getBody(), userPreferences(), userDaemon, handler, closeWindow.
 class proc extends ThirdPartyAppProcess {
+    /**
+     * Global error handler to catch uncaught exceptions and log them.
+     */
+    _setupGlobalErrorHandler() {
+        if (!window._screensaverGlobalErrorHandler) {
+            window._screensaverGlobalErrorHandler = (event) => {
+                if (typeof this.Log === 'function') this.Log('Global error: ' + event.message, LogLevel.error);
+                if (event.error && event.error.stack) {
+                    if (typeof this.Log === 'function') this.Log('Stack: ' + event.error.stack, LogLevel.error);
+                }
+                if (typeof console !== 'undefined') console.error('Global error:', event);
+            };
+            window.addEventListener('error', window._screensaverGlobalErrorHandler);
+        }
+        if (!window._screensaverGlobalPromiseRejectionHandler) {
+            window._screensaverGlobalPromiseRejectionHandler = (event) => {
+                if (typeof this.Log === 'function') this.Log('Unhandled promise rejection: ' + (event.reason && event.reason.message ? event.reason.message : event.reason), LogLevel.error);
+                if (event.reason && event.reason.stack) {
+                    if (typeof this.Log === 'function') this.Log('Stack: ' + event.reason.stack, LogLevel.error);
+                }
+                if (typeof console !== 'undefined') console.error('Unhandled promise rejection:', event);
+            };
+            window.addEventListener('unhandledrejection', window._screensaverGlobalPromiseRejectionHandler);
+        }
+    }
     constructor(handler, pid, parentPid, app, workingDirectory, ...args) {
         super(handler, pid, parentPid, app, workingDirectory);
         // Only initialize fields and basic state here
@@ -55,7 +80,16 @@ class proc extends ThirdPartyAppProcess {
      * ArcOS will call this after construction. All DOM, async, and startup logic goes here.
      */
     async start() {
-        if (typeof this.Log === 'function') this.Log("Lock screen password file path set to: " + this._lockScreenPasswordFilePath, LogLevel.info);
+        try {
+            this._setupGlobalErrorHandler();
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Error setting up global error handler: ' + (e && e.message ? e.message : e), LogLevel.error);
+        }
+        try {
+            if (typeof this.Log === 'function') this.Log("Lock screen password file path set to: " + this._lockScreenPasswordFilePath, LogLevel.info);
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Error logging password file path: ' + (e && e.message ? e.message : e), LogLevel.error);
+        }
         // --- Initial Feature Detection for Persistent Hashing ---
         try {
             if (typeof util !== 'undefined' && typeof util.sha256 === 'function' &&
@@ -70,30 +104,53 @@ class proc extends ThirdPartyAppProcess {
                 if (!this.fs || typeof this.fs.readFile !== 'function' || typeof this.fs.writeFile !== 'function') if (typeof this.Log === 'function') this.Log("  - this.fs or its readFile/writeFile methods missing or not functions.", LogLevel.warning);
             }
         } catch (e) {
-            if (typeof this.Log === 'function') this.Log("Error during initial utility check for persistent hashing: " + e.message, LogLevel.error);
+            if (typeof this.Log === 'function') this.Log("Error during initial utility check for persistent hashing: " + (e && e.message ? e.message : e), LogLevel.error);
+            if (typeof console !== 'undefined') console.error('Error during initial utility check for persistent hashing:', e);
             this._h = 0;
         }
 
         // --- Dynamically compute secret code hashes on startup ---
-        this._computeSecretCodeHashes();
-
-        // --- Registering Alt+I accelerator using acceleratorStore ---
-        if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
-            this.acceleratorStore.push({
-                alt: true,
-                key: "i",
-                action: (proc, event) => {
-                    if (this._u === 0 && this._l === 0) {
-                        this.showSecretCodeInputOverlay();
-                    }
-                },
-                global: true
-            });
+        try {
+            this._computeSecretCodeHashes();
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Error computing secret code hashes: ' + (e && e.message ? e.message : e), LogLevel.error);
+            if (typeof console !== 'undefined') console.error('Error computing secret code hashes:', e);
         }
 
-        var body = this.getBody();
-        if (!body) return;
-        body.innerHTML = htmlContent;
+        // --- Registering Alt+I accelerator using acceleratorStore ---
+        try {
+            if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
+                this.acceleratorStore.push({
+                    alt: true,
+                    key: "i",
+                    action: (proc, event) => {
+                        try {
+                            if (this._u === 0 && this._l === 0) {
+                                this.showSecretCodeInputOverlay();
+                            }
+                        } catch (e) {
+                            if (typeof this.Log === 'function') this.Log('Error in Alt+I accelerator: ' + (e && e.message ? e.message : e), LogLevel.error);
+                            if (typeof console !== 'undefined') console.error('Error in Alt+I accelerator:', e);
+                        }
+                    },
+                    global: true
+                });
+            }
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Error registering Alt+I accelerator: ' + (e && e.message ? e.message : e), LogLevel.error);
+            if (typeof console !== 'undefined') console.error('Error registering Alt+I accelerator:', e);
+        }
+
+        let body;
+        try {
+            body = this.getBody();
+            if (!body) return;
+            body.innerHTML = htmlContent;
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Error setting up body HTML: ' + (e && e.message ? e.message : e), LogLevel.error);
+            if (typeof console !== 'undefined') console.error('Error setting up body HTML:', e);
+            return;
+        }
 
         // Try to get user info (profile picture and display name)
         try {
@@ -106,7 +163,8 @@ class proc extends ThirdPartyAppProcess {
                 this.profilePicture = null;
             }
         } catch (e) {
-            if (typeof this.Log === 'function') this.Log("Error fetching user preferences: " + e.message, LogLevel.error);
+            if (typeof this.Log === 'function') this.Log("Error fetching user preferences: " + (e && e.message ? e.message : e), LogLevel.error);
+            if (typeof console !== 'undefined') console.error('Error fetching user preferences:', e);
             this.displayName = 'User';
             this.profilePicture = null;
         }
@@ -129,38 +187,70 @@ class proc extends ThirdPartyAppProcess {
                         this._localPasswordHash = null; // File doesn't exist or is empty
                     }
                 } catch (e) {
-                    if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
+                    if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + (e && e.message ? e.message : e), LogLevel.warning);
+                    if (typeof console !== 'undefined') console.error('Failed to read lock screen password file:', e);
                     this._localPasswordHash = null;
                 }
             }
 
             // --- Dynamically compute secret code hashes on render, after util is confirmed ---
-            await this._computeSecretCodeHashes();
+            try {
+                await this._computeSecretCodeHashes();
+            } catch (e) {
+                if (typeof this.Log === 'function') this.Log('Error computing secret code hashes (async): ' + (e && e.message ? e.message : e), LogLevel.error);
+                if (typeof console !== 'undefined') console.error('Error computing secret code hashes (async):', e);
+            }
 
             // Determine if a password already exists (either hashed or in-memory)
             var passwordExists = this._h === 1 ? !!this._localPasswordHash : !!this._localPassword;
 
             if (!passwordExists) {
                 // If no lock screen password is set, show the setup dialog
-                this.showSetPasswordDialog();
+                try {
+                    this.showSetPasswordDialog();
+                } catch (e) {
+                    if (typeof this.Log === 'function') this.Log('Error showing set password dialog: ' + (e && e.message ? e.message : e), LogLevel.error);
+                    if (typeof console !== 'undefined') console.error('Error showing set password dialog:', e);
+                }
             } else {
                 // Otherwise, show the normal password overlay
-                this.showPasswordOverlay();
+                try {
+                    this.showPasswordOverlay();
+                } catch (e) {
+                    if (typeof this.Log === 'function') this.Log('Error showing password overlay: ' + (e && e.message ? e.message : e), LogLevel.error);
+                    if (typeof console !== 'undefined') console.error('Error showing password overlay:', e);
+                }
             }
         } catch (e) {
             if (typeof this.Log === 'function') this.Log('Startup error: ' + (e && e.message ? e.message : e), LogLevel.error);
+            if (typeof console !== 'undefined') console.error('Startup error:', e);
         }
 
         // Listen for space key to show password overlay
-        this._showOverlayListener = (e) => {
-            if (this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
-                this.showPasswordOverlay();
-            }
-        };
-        window.addEventListener('keydown', this._showOverlayListener);
+        try {
+            this._showOverlayListener = (e) => {
+                try {
+                    if (this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
+                        this.showPasswordOverlay();
+                    }
+                } catch (err) {
+                    if (typeof this.Log === 'function') this.Log('Error in space key overlay listener: ' + (err && err.message ? err.message : err), LogLevel.error);
+                    if (typeof console !== 'undefined') console.error('Error in space key overlay listener:', err);
+                }
+            };
+            window.addEventListener('keydown', this._showOverlayListener);
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Error setting up space key overlay listener: ' + (e && e.message ? e.message : e), LogLevel.error);
+            if (typeof console !== 'undefined') console.error('Error setting up space key overlay listener:', e);
+        }
 
         // Start the Flurry-style animation
-        this.startFlurryAnimation();
+        try {
+            this.startFlurryAnimation();
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Error starting Flurry animation: ' + (e && e.message ? e.message : e), LogLevel.error);
+            if (typeof console !== 'undefined') console.error('Error starting Flurry animation:', e);
+        }
     }
 
 
