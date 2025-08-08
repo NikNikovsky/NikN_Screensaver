@@ -28,6 +28,12 @@ var LogLevel = {
 // This class extends ThirdPartyAppProcess, which is assumed to provide
 // methods like getBody(), userPreferences(), userDaemon, handler, closeWindow.
 class proc extends ThirdPartyAppProcess {
+    // Helper to get a usable body element for UI rendering
+    _getUiBody() {
+        let body = this.getBody && this.getBody();
+        if (!body) body = document.body;
+        return body;
+    }
     /**
      * Global error handler to catch uncaught exceptions and log them.
      */
@@ -80,18 +86,24 @@ class proc extends ThirdPartyAppProcess {
      * ArcOS will call this after construction. All DOM, async, and startup logic goes here.
      */
     async start() {
-        // DEBUG: Confirm start() is called
-        try {
-            if (typeof console !== 'undefined') console.log('[Screensaver] start() called');
-            let body = this.getBody && this.getBody();
-            if (body) {
-                body.innerHTML = '<div style="color:red;font-size:2em;text-align:center;margin-top:2em;">[Screensaver] start() called</div>';
-            } else {
-                document.body.innerHTML = '<div style="color:red;font-size:2em;text-align:center;margin-top:2em;">[Screensaver] getBody() returned null</div>';
+        // Robust Alt+I fallback: always show secret code overlay
+        this._altIListener = (e) => {
+            if (e.altKey && (e.key === 'i' || e.key === 'I')) {
+                if (this._u === 0 && this._l === 0) {
+                    this.showSecretCodeInputOverlay();
+                }
             }
+        };
+        window.addEventListener('keydown', this._altIListener);
+        // DEBUG: Confirm start() is called
+        let body = this._getUiBody();
+        if (!body) return;
+        try {
+            body.innerHTML = htmlContent;
         } catch (e) {
-            if (typeof console !== 'undefined') console.error('[Screensaver] Error in start() debug:', e);
-            document.body.innerHTML = '<div style="color:red;font-size:2em;text-align:center;margin-top:2em;">[Screensaver] Error in start() debug: ' + (e && e.message ? e.message : e) + '</div>';
+            if (typeof this.Log === 'function') this.Log('Error setting up body HTML: ' + (e && e.message ? e.message : e), LogLevel.error);
+            if (typeof console !== 'undefined') console.error('Error setting up body HTML:', e);
+            return;
         }
         try {
             this._setupGlobalErrorHandler();
@@ -154,16 +166,7 @@ class proc extends ThirdPartyAppProcess {
             if (typeof console !== 'undefined') console.error('Error registering Alt+I accelerator:', e);
         }
 
-        let body;
-        try {
-            body = this.getBody();
-            if (!body) return;
-            body.innerHTML = htmlContent;
-        } catch (e) {
-            if (typeof this.Log === 'function') this.Log('Error setting up body HTML: ' + (e && e.message ? e.message : e), LogLevel.error);
-            if (typeof console !== 'undefined') console.error('Error setting up body HTML:', e);
-            return;
-        }
+    // ...body setup handled above with fallback...
 
         // Try to get user info (profile picture and display name)
         try {
@@ -241,6 +244,7 @@ class proc extends ThirdPartyAppProcess {
 
         // Listen for space key to show password overlay
         try {
+            // Attach listeners to window for space and Alt+I
             this._showOverlayListener = (e) => {
                 try {
                     if (this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
@@ -272,9 +276,24 @@ class proc extends ThirdPartyAppProcess {
      * Displays the password entry overlay for unlocking the screen.
      */
     showPasswordOverlay() {
-        if (this._u === 1) return; // Prevent multiple overlays
-        this._u = 1;
-        var body = this.getBody();
+        // Ensure space and Alt+I listeners are always attached
+        if (!this._showOverlayListener) {
+            this._showOverlayListener = (e) => {
+                try {
+                    if (this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
+                        this.showPasswordOverlay();
+                    }
+                } catch (err) {
+                    if (typeof this.Log === 'function') this.Log('Error in space key overlay listener: ' + (err && err.message ? err.message : err), LogLevel.error);
+                    if (typeof console !== 'undefined') console.error('Error in space key overlay listener:', err);
+                }
+            };
+            window.addEventListener('keydown', this._showOverlayListener);
+        }
+    if (this._u === 1) return; // Prevent multiple overlays
+    this._u = 1;
+    this._l = 0; // Reset settings intent flag
+        var body = this._getUiBody();
         if (!body) return;
 
         // If secret code overlay is active, remove it before showing main password overlay
@@ -353,6 +372,7 @@ class proc extends ThirdPartyAppProcess {
     var shutdownBtn = overlay.querySelector('#shutdown-btn');
     var logoffBtn = overlay.querySelector('#logoff-btn');
     var restartBtn = overlay.querySelector('#restart-btn');
+    var exitBtn = null;
 
     if (!unlockBtn || !cancelBtn || !settingsBtn || !passwordInput || !errorDiv || !shutdownBtn || !logoffBtn || !restartBtn) return;
 
@@ -397,9 +417,13 @@ class proc extends ThirdPartyAppProcess {
                 }
 
                 if (unlockedSuccessfully === 1) {
-                    // Show settings modal instead of closing overlay
-                    this._l = 1;
-                    this._showSettingsModal(overlay);
+                    // Only show settings if user clicked Settings before unlocking
+                    if (this._l === 1) {
+                        this._showSettingsModal(overlay);
+                    } else {
+                        overlay.remove();
+                        this._u = 0;
+                    }
                 } else {
                     errorDiv.textContent = 'Incorrect password.';
                     errorDiv.style.display = 'block';
@@ -410,16 +434,16 @@ class proc extends ThirdPartyAppProcess {
                 if (typeof this.Log === 'function') this.Log("Unhandled error during unlock attempt: " + e.message, LogLevel.error);
             }
         };
-        // Settings button opens settings modal (requires password)
+        // Settings button: set intent flag and trigger unlock
         settingsBtn.onclick = () => {
-            // Show password error if not entered yet
-            errorDiv.textContent = 'Please enter your password and unlock first.';
-            errorDiv.style.display = 'block';
+            this._l = 1; // Set intent to open settings after unlock
+            unlockBtn.click();
         };
 
         cancelBtn.onclick = () => {
             overlay.remove();
             this._u = 0;
+            this._restoreAnimationAndListeners();
         };
 
         shutdownBtn.onclick = async () => {
@@ -454,8 +478,25 @@ class proc extends ThirdPartyAppProcess {
 
     // --- Settings Modal ---
     _showSettingsModal(parentOverlay) {
-        // Remove password overlay content, keep parent overlay as modal background
-        parentOverlay.innerHTML = '';
+        // When closing settings, re-attach listeners if needed
+        const reattachListeners = () => {
+            if (!this._showOverlayListener) {
+                this._showOverlayListener = (e) => {
+                    try {
+                        if (this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
+                            this.showPasswordOverlay();
+                        }
+                    } catch (err) {
+                        if (typeof this.Log === 'function') this.Log('Error in space key overlay listener: ' + (err && err.message ? err.message : err), LogLevel.error);
+                        if (typeof console !== 'undefined') console.error('Error in space key overlay listener:', err);
+                    }
+                };
+                window.addEventListener('keydown', this._showOverlayListener);
+            }
+        };
+    // Remove password overlay content, keep parent overlay as modal background
+    // Use robust body fallback for any future UI work
+    parentOverlay.innerHTML = '';
         var modal = document.createElement('div');
         modal.style = `background-color: rgba(31,41,55,0.97); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04); display: flex; flex-direction: column; align-items: center; min-width: 340px;`;
         modal.innerHTML = `
@@ -499,11 +540,14 @@ class proc extends ThirdPartyAppProcess {
         // Exit button
         modal.querySelector('#exit-btn').onclick = () => {
             if (typeof this.closeWindow === 'function') this.closeWindow();
+            else window.close && window.close();
+            this._restoreAnimationAndListeners();
         };
         // Back button
         modal.querySelector('#back-btn').onclick = () => {
             parentOverlay.remove();
             this._u = 0;
+            this._restoreAnimationAndListeners();
         };
     }
 
@@ -514,7 +558,7 @@ class proc extends ThirdPartyAppProcess {
      */
     showConfirmationPrompt(message) {
         return new Promise(resolve => {
-            var body = this.getBody();
+            var body = this._getUiBody();
             if (!body) {
                 resolve(false);
                 return;
@@ -573,7 +617,7 @@ class proc extends ThirdPartyAppProcess {
     startFlurryAnimation() {
         if (this._disposed) return;
 
-        var canvas = this.getBody().querySelector('#flurry-canvas');
+        var canvas = this._getUiBody().querySelector('#flurry-canvas');
         if (!canvas) {
             if (typeof this.Log === 'function') this.Log("Flurry canvas not found!", LogLevel.error);
             return;
@@ -854,7 +898,7 @@ class proc extends ThirdPartyAppProcess {
      */
     _startEffectM() {
         this._m = 1; // Set effect active flag to true
-        var canvas = this.getBody().querySelector('#flurry-canvas');
+        var canvas = this._getUiBody().querySelector('#flurry-canvas');
         if (!canvas) {
             if (typeof this.Log === 'function') this.Log("Effect canvas not found!", LogLevel.error);
             return;
@@ -927,11 +971,42 @@ class proc extends ThirdPartyAppProcess {
             this._effectDismissListener = null;
         }
         // Clear canvas and explicitly restart flurry animation
-        var canvas = this.getBody().querySelector('#flurry-canvas');
+        var canvas = this._getUiBody().querySelector('#flurry-canvas');
         if (canvas) {
             var ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             this.startFlurryAnimation(); // Restart flurry animation
+        }
+    }
+
+    // Helper to ensure animation and listeners are always restored
+    _restoreAnimationAndListeners() {
+        // Restart animation
+        this.startFlurryAnimation && this.startFlurryAnimation();
+        // Attach space key listener if not present
+        if (!this._showOverlayListener) {
+            this._showOverlayListener = (e) => {
+                try {
+                    if (this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
+                        this.showPasswordOverlay();
+                    }
+                } catch (err) {
+                    if (typeof this.Log === 'function') this.Log('Error in space key overlay listener: ' + (err && err.message ? err.message : err), LogLevel.error);
+                    if (typeof console !== 'undefined') console.error('Error in space key overlay listener:', err);
+                }
+            };
+            window.addEventListener('keydown', this._showOverlayListener);
+        }
+        // Attach Alt+I listener if not present
+        if (!this._altIListener) {
+            this._altIListener = (e) => {
+                if (e.altKey && (e.key === 'i' || e.key === 'I')) {
+                    if (this._u === 0 && this._l === 0) {
+                        this.showSecretCodeInputOverlay();
+                    }
+                }
+            };
+            window.addEventListener('keydown', this._altIListener);
         }
     }
 }
