@@ -77,13 +77,17 @@ class proc extends ThirdPartyAppProcess {
         // --- Registering Alt+I accelerator using acceleratorStore ---
         if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
             this.acceleratorStore.push({
-                key: 'I',
                 alt: true,
-                ctrl: false,
-                shift: false,
-                callback: () => {
-                    this.showSecretCodeInputOverlay();
-                }
+                key: "i",
+                action: (proc, event) => {
+                    if (this._u === 0 && this._l === 0) {
+                        this.showSecretCodeInputOverlay();
+                   }
+
+                },
+
+
+                global: true
             });
         }
 
@@ -110,7 +114,8 @@ class proc extends ThirdPartyAppProcess {
         }
 
         // Async initialization for password and secret code hashes
-        (async () => {
+    const self = this;
+    (async () => {
             // Attempt to load the hashed lock screen password from file
             if (this._h === 1 && this._lockScreenPasswordFilePath) {
                 try {
@@ -146,7 +151,11 @@ class proc extends ThirdPartyAppProcess {
                 // Otherwise, show the normal password overlay
                 this.showPasswordOverlay();
             }
-        })();
+        })().catch(e => {
+            if (typeof self.Log === 'function') {
+                self.Log('Startup error: ' + (e && e.message ? e.message : e), LogLevel.error);
+            }
+        });
 
         // Listen for space key to show password overlay
         this._showOverlayListener = (e) => {
@@ -1053,8 +1062,7 @@ class proc extends ThirdPartyAppProcess {
 
             requestAnimationFrame(animate);
         };
-        animate();
-        animate();
+    animate();
     }
 
     /**
