@@ -77,10 +77,18 @@ class proc extends ThirdPartyAppProcess {
         // --- Registering Alt+I accelerator using acceleratorStore ---
         if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
             this.acceleratorStore.push({
-                // You may want to add accelerator definitions here if needed
+                key: 'I',
+                alt: true,
+                ctrl: false,
+                shift: false,
+                callback: () => {
+                    this.showSecretCodeInputOverlay();
+                }
             });
         }
 
+        // Animation frame management
+        this._animationFrameId = null;
         var body = this.getBody();
         if (!body) return;
         body.innerHTML = htmlContent;
@@ -101,41 +109,44 @@ class proc extends ThirdPartyAppProcess {
             this.profilePicture = null;
         }
 
-        // Attempt to load the hashed lock screen password from file
-        if (this._h === 1 && this._lockScreenPasswordFilePath) {
-            try {
-                var fileContent = async.this.fs.readFile(this._lockScreenPasswordFilePath);
-                if (fileContent) {
-                    var loadedContent = convert.arrayToText(new Uint8Array(fileContent));
-                    if (loadedContent === RESET_PASSWORD_MARKER) {
-                        this._localPasswordHash = null; // Treat as no password set
-                        if (typeof this.Log === 'function') this.Log("Lock screen password reset marker found. Prompting for new password.", LogLevel.info);
+        // Async initialization for password and secret code hashes
+        (async () => {
+            // Attempt to load the hashed lock screen password from file
+            if (this._h === 1 && this._lockScreenPasswordFilePath) {
+                try {
+                    var fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
+                    if (fileContent) {
+                        var loadedContent = convert.arrayToText(new Uint8Array(fileContent));
+                        if (loadedContent === RESET_PASSWORD_MARKER) {
+                            this._localPasswordHash = null; // Treat as no password set
+                            if (typeof this.Log === 'function') this.Log("Lock screen password reset marker found. Prompting for new password.", LogLevel.info);
+                        } else {
+                            this._localPasswordHash = loadedContent;
+                            if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
+                        }
                     } else {
-                        this._localPasswordHash = loadedContent;
-                        if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
+                        this._localPasswordHash = null; // File doesn't exist or is empty
                     }
-                } else {
-                    this._localPasswordHash = null; // File doesn't exist or is empty
+                } catch (e) {
+                    if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
+                    this._localPasswordHash = null;
                 }
-            } catch (e) {
-                if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
-                this._localPasswordHash = null;
             }
-        }
 
-        // --- Dynamically compute secret code hashes on render, after util is confirmed ---
-        async.this._computeSecretCodeHashes();
+            // --- Dynamically compute secret code hashes on render, after util is confirmed ---
+            await this._computeSecretCodeHashes();
 
-        // Determine if a password already exists (either hashed or in-memory)
-        var passwordExists = this._h === 1 ? !!this._localPasswordHash : !!this._localPassword;
+            // Determine if a password already exists (either hashed or in-memory)
+            var passwordExists = this._h === 1 ? !!this._localPasswordHash : !!this._localPassword;
 
-        if (!passwordExists) {
-            // If no lock screen password is set, show the setup dialog
-            this.showSetPasswordDialog();
-        } else {
-            // Otherwise, show the normal password overlay
-            this.showPasswordOverlay();
-        }
+            if (!passwordExists) {
+                // If no lock screen password is set, show the setup dialog
+                this.showSetPasswordDialog();
+            } else {
+                // Otherwise, show the normal password overlay
+                this.showPasswordOverlay();
+            }
+        })();
 
         // Listen for space key to show password overlay
         this._showOverlayListener = (e) => {
@@ -145,8 +156,19 @@ class proc extends ThirdPartyAppProcess {
         };
         window.addEventListener('keydown', this._showOverlayListener);
 
-        // Start the Flurry-style animation
-        this.startFlurryAnimation();
+    // Start the Flurry-style animation
+    this.startFlurryAnimation();
+    // End of constructor
+    }
+
+    /**
+     * Cancels the current animation frame if running.
+     */
+    _cancelAnimation() {
+        if (this._animationFrameId !== null) {
+            cancelAnimationFrame(this._animationFrameId);
+            this._animationFrameId = null;
+        }
     }
 
     /**
@@ -170,257 +192,286 @@ class proc extends ThirdPartyAppProcess {
         if (!body) return;
 
         var setupOverlay = document.createElement('div');
-        setupOverlay.id = 'set-password-overlay';
-        setupOverlay.style = `
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(0, 0, 0, 0.85);
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
-        `;
-        setupOverlay.innerHTML = `
-            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
-                <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 24px;">Set Your Lock Screen Password</div>
-                <div style="color: #d1d5db; font-size: 14px; margin-bottom: 16px; text-align: center;">
-                    Please set a new password for this lock screen. It must be at least 4 characters long and contain no spaces.
-                    This password is separate from your account password.
-                </div>
-                <input id="new-password-input" type="password" placeholder="New Password"
-                       style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
-                       onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
-                <input id="confirm-password-input" type="password" placeholder="Confirm Password"
-                       style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 16px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
-                       onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" />
-                <button id="set-password-btn"
-                        style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                        onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
-                    Set Password
-                </button>
-                <div id="set-password-error" style="color: #f87171; margin-top: 12px; font-size: 14px; display: none;"></div>
-            </div>
-        `;
-        body.appendChild(setupOverlay);
+            if (this._disposed) return;
 
-        var newPasswordInput = setupOverlay.querySelector('#new-password-input');
-        var confirmPasswordInput = setupOverlay.querySelector('#confirm-password-input');
-        var setPasswordBtn = setupOverlay.querySelector('#set-password-btn');
-        var errorDiv = setupOverlay.querySelector('#set-password-error');
+            // Cancel any previous animation frame
+            this._cancelAnimation();
 
-        if (!newPasswordInput || !confirmPasswordInput || !setPasswordBtn || !errorDiv) return;
-
-        setPasswordBtn.onclick = async () => {
-            var newPassword = newPasswordInput.value;
-            var confirmPassword = confirmPasswordInput.value;
-
-            errorDiv.style.display = 'none';
-
-            if (newPassword.length < 4) {
-                errorDiv.textContent = 'Password must be at least 4 characters long.';
-                errorDiv.style.display = 'block';
-                return;
-            }
-            if (newPassword.includes(' ')) {
-                errorDiv.textContent = 'Password cannot contain spaces.';
-                errorDiv.style.display = 'block';
-                return;
-            }
-            if (newPassword !== confirmPassword) {
-                errorDiv.textContent = 'Passwords do not match.';
-                errorDiv.style.display = 'block';
+            var canvas = this.getBody().querySelector('#flurry-canvas');
+            if (!canvas) {
+                if (typeof this.Log === 'function') this.Log("Flurry canvas not found!", LogLevel.error);
                 return;
             }
 
-            try {
-                if (this._h === 1 && this._lockScreenPasswordFilePath) {
-                    try {
-                        var hashedPassword = await util.sha256(newPassword);
-                        this._localPasswordHash = hashedPassword;
-                        if (typeof this.Log === 'function') this.Log("Lock screen password hashed and stored locally.", LogLevel.info);
+            var resizeCanvas = () => {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            };
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
 
-                        var blob = convert.textToBlob(hashedPassword, 'text/plain');
-                        await this.fs.writeFile(this._lockScreenPasswordFilePath, blob);
-                        if (typeof this.Log === 'function') this.Log("Hashed lock screen password saved to file: " + this._lockScreenPasswordFilePath, LogLevel.info);
-                    } catch (e) {
-                        if (typeof this.Log === 'function') this.Log("Error during persistent password setup (hashing or file write): " + e.message, LogLevel.error);
-                        this._h = 0;
-                        this._localPassword = newPassword;
-                    }
-                } else {
-                    this._localPassword = newPassword;
-                    if (typeof this.Log === 'function') this.Log("Persistent hashing not available. Lock screen password stored in memory for this session.", LogLevel.warning);
+            var ctx = canvas.getContext('2d');
+            // Use settings if available
+            var NUM_CURVES = this._settings?.curves ?? 5;
+            var NUM_BEZIERS = this._settings?.beziers ?? 3;
+            var NUM_SPIRALS = this._settings?.spirals ?? 2;
+            var NUM_POLYGONS = this._settings?.polygons ?? 2;
+            var NUM_PARTICLES = this._settings?.particles ?? 60;
+            var POINTS_PER_CURVE = 6;
+            var curves = [];
+            var beziers = [];
+            var spirals = [];
+            var polygons = [];
+            var particles = [];
+            var colors = [
+                '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#A66CFF', '#FF6EC7', '#00C2CB', '#FFB26B'
+            ];
+
+            function random(min, max) {
+                return Math.random() * (max - min) + min;
+            }
+
+            // --- Flurry Curves (Quadratic) ---
+            function createCurve() {
+                var points = [];
+                for (var i = 0; i < POINTS_PER_CURVE; i++) {
+                    points.push({
+                        x: random(0, canvas.width),
+                        y: random(0, canvas.height),
+                        vx: random(-1, 1),
+                        vy: random(-1, 1)
+                    });
                 }
-
-                setupOverlay.remove();
-                this.showPasswordOverlay();
+                return {
+                    points,
+                    color: colors[Math.floor(random(0, colors.length))],
+                    alpha: random(0.3, 0.7),
+                    width: random(1.5, 3.5),
+                    phase: random(0, Math.PI * 2)
+                };
             }
-            catch (e) {
-                errorDiv.textContent = 'Failed to set password. An unexpected error occurred. Please check console.';
-                errorDiv.style.display = 'block';
-                if (typeof this.Log === 'function') this.Log("General error during password setup: " + e.message, LogLevel.error);
+            for (var i = 0; i < NUM_CURVES; i++) curves.push(createCurve());
+
+            // --- Bezier Curves ---
+            function createBezier() {
+                var p = [];
+                for (var i = 0; i < 4; i++) {
+                    p.push({
+                        x: random(0, canvas.width),
+                        y: random(0, canvas.height),
+                        vx: random(-1.2, 1.2),
+                        vy: random(-1.2, 1.2)
+                    });
+                }
+                return {
+                    points: p,
+                    color: colors[Math.floor(random(0, colors.length))],
+                    alpha: random(0.25, 0.6),
+                    width: random(1.5, 3.5),
+                    phase: random(0, Math.PI * 2)
+                };
             }
-        };
+            for (var i = 0; i < NUM_BEZIERS; i++) beziers.push(createBezier());
 
-        newPasswordInput.onkeydown = (e) => { if (e.key === 'Enter') setPasswordBtn.click(); };
-        confirmPasswordInput.onkeydown = (e) => { if (e.key === 'Enter') setPasswordBtn.click(); };
-    }
-
-    /**
-     * Displays an overlay for the user to input a secret code to unlock.
-     * Triggered by Alt+I. This validates against hardcoded secret codes.
-     */
-    showSecretCodeInputOverlay() {
-        if (this._s === 1) return;
-        this._s = 1;
-        var body = this.getBody();
-        if (!body) return;
-
-        // If the main password overlay is active, remove it before showing secret code overlay
-        var mainOverlay = body.querySelector('#lock-overlay');
-        if (mainOverlay) {
-            mainOverlay.remove();
-            this._u = 0; // Reset main overlay flag
-        }
-
-        var inputOverlay = document.createElement('div');
-        inputOverlay.id = 'secret-code-input-overlay';
-        inputOverlay.style = `
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(0, 0, 0, 0.85);
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
-        `;
-        inputOverlay.innerHTML = `
-            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
-                <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 24px;"></div> <!-- Title is blank -->
-                <input id="secret-code-unlock-input" type="text" placeholder=""
-                       style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
-                       onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
-                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                    <button id="unlock-secret-code-btn"
-                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                            onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
-                        Unlock
-                    </button>
-                    <button id="cancel-secret-code-unlock-btn"
-                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                            onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
-                        Cancel
-                    </button>
-                </div>
-                <div id="secret-code-unlock-error" style="color: #f87171; margin-top: 12px; font-size: 14px; display: none;"></div>
-            </div>
-        `;
-        body.appendChild(inputOverlay);
-
-        var secretCodeInput = inputOverlay.querySelector('#secret-code-unlock-input');
-        var unlockSecretCodeBtn = inputOverlay.querySelector('#unlock-secret-code-btn');
-        var cancelBtn = inputOverlay.querySelector('#cancel-secret-code-unlock-btn');
-        var errorDiv = inputOverlay.querySelector('#secret-code-unlock-error');
-
-        if (!secretCodeInput || !unlockSecretCodeBtn || !cancelBtn || !errorDiv) return;
-
-        unlockSecretCodeBtn.onclick = async () => {
-            var code = secretCodeInput.value;
-            errorDiv.style.display = 'none';
-
-            if (code.length === 0) {
-                errorDiv.textContent = 'Input a code.'; 
-                errorDiv.style.display = 'block';
-                return;
+            // --- Spirals ---
+            function createSpiral() {
+                return {
+                    cx: random(0, canvas.width),
+                    cy: random(0, canvas.height),
+                    angle: random(0, Math.PI * 2),
+                    radius: random(40, 120),
+                    color: colors[Math.floor(random(0, colors.length))],
+                    alpha: random(0.18, 0.35),
+                    width: random(1.2, 2.5),
+                    speed: random(0.01, 0.03),
+                    phase: random(0, Math.PI * 2)
+                };
             }
+            for (var i = 0; i < NUM_SPIRALS; i++) spirals.push(createSpiral());
 
-            var unlockedBySecretCode = 0;
-            try {
-                if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
-                    var enteredCodeHash = await util.sha256(code);
-                    if (this._computedSecretCodeHashes.includes(enteredCodeHash)) {
-                        unlockedBySecretCode = 1;
+            // --- Polygons ---
+            function createPolygon() {
+                var sides = Math.floor(random(5, 8));
+                var r = random(30, 80);
+                var cx = random(0, canvas.width);
+                var cy = random(0, canvas.height);
+                var rot = random(0, Math.PI * 2);
+                return {
+                    sides,
+                    r,
+                    cx,
+                    cy,
+                    rot,
+                    color: colors[Math.floor(random(0, colors.length))],
+                    alpha: random(0.15, 0.3),
+                    width: random(1.2, 2.5),
+                    rotSpeed: random(-0.01, 0.01)
+                };
+            }
+            for (var i = 0; i < NUM_POLYGONS; i++) polygons.push(createPolygon());
 
-                        // --- Code Effects ---
-                        // Compare entered hash directly with computed hashes
-                        if (enteredCodeHash === this._computedSecretCodeHashes[0]) { 
-                            if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
-                            inputOverlay.remove(); // Remove input overlay
-                            this._s = 0;
-                            // Updated image paths to include 'egg' subdirectory
-                            this.showImageDisplayOverlay('./egg/cert1.png', './egg/cert2.png');
-                            return; // Exit function after displaying images
-                        } else if (enteredCodeHash === this._computedSecretCodeHashes[1]) { 
-                            if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
-                            inputOverlay.remove(); // Remove input overlay
-                            this._s = 0;
-                            this._startEffectM(); // Call obfuscated function
-                            return; // Exit function after starting effect
-                        } else if (enteredCodeHash === this._computedSecretCodeHashes[2]) { 
-                            if (typeof this.Log === 'function') this.Log("Secret code for password reset entered. Showing confirmation prompt.", LogLevel.info)
-                            inputOverlay.remove(); // Remove input overlay
-                            this._s = 0;
-                            var confirmed = await this.showConfirmationPrompt("Are you sure? This will delete your lock screen password and log you out from your ArcOS session.");
-                            if (confirmed) {
-                                if (typeof this.Log === 'function') this.Log("Password reset confirmed. Attempting to write reset marker and log out from ArcOS.", LogLevel.info);
-                                try {
-                                    if (this.fs && typeof this.fs.writeFile === 'function' && this._lockScreenPasswordFilePath) {
-                                        var blob = convert.textToBlob(RESET_PASSWORD_MARKER, 'text/plain');
-                                        await this.fs.writeFile(this._lockScreenPasswordFilePath, blob);
-                                        this._localPasswordHash = null; // Clear in-memory hash
-                                        this._localPassword = null; // Clear in-memory plaintext
-                                        this._h = 0; // Reset persistent hashing flag
-                                        if (typeof this.Log === 'function') this.Log("Lock screen password reset marker written successfully.", LogLevel.info);
-                                    } else {
-                                        if (typeof this.Log === 'function') this.Log("File system write function not available or path invalid for reset.", LogLevel.error);
-                                    }
+            // --- Particles (with Glow) ---
+            function createParticle() {
+                return {
+                    x: random(0, canvas.width),
+                    y: random(0, canvas.height),
+                    vx: random(-0.7, 0.7),
+                    vy: random(-0.7, 0.7),
+                    color: colors[Math.floor(random(0, colors.length))],
+                    alpha: random(0.25, 0.7),
+                    radius: random(2, 6),
+                    glow: random(8, 24)
+                };
+            }
+            for (var i = 0; i < NUM_PARTICLES; i++) particles.push(createParticle());
 
-                                    if (this.userDaemon && typeof this.userDaemon.logoff === 'function') {
-                                        if (typeof this.Log === 'function') this.Log("Logging user out of ArcOS...", LogLevel.info);
-                                        await this.userDaemon.logoff();
-                                    } else {
-                                        if (typeof this.Log === 'function') this.Log("ArcOS logoff functionality not available via userDaemon.", LogLevel.error);
-                                    }
-                                } catch (e) {
-                                    if (typeof this.Log === 'function') this.Log("Error during password reset/ArcOS Logoff: " + e.message, LogLevel.error);
-                                }
-                            } else {
-                                if (typeof this.Log === 'function') this.Log("Password reset cancelled.", LogLevel.info);
-                            }
-                            return; // Exit function after handling prompt
-                        }
-                    }
-                } else {
-                    if (typeof this.Log === 'function') this.Log("util.sha256 not available. Secret code validation is not secure and will not work.", LogLevel.warning);
-                    errorDiv.textContent = 'Secret code validation is unavailable.';
-                    errorDiv.style.display = 'block';
+            var t = 0;
+            const animate = () => {
+                if (this._disposed || this._m === 1) {
+                    if (this._m === 1 && canvas) ctx.clearRect(0, 0, canvas.width, canvas.height);
                     return;
                 }
-            } catch (e) {
-                if (typeof this.Log === 'function') this.Log("Error hashing secret code for validation: " + e.message, LogLevel.error);
-                errorDiv.textContent = 'An error occurred during validation.';
-                errorDiv.style.display = 'block';
-                return;
-            }
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                t += 0.016;
 
-            if (unlockedBySecretCode === 1) { // This path is now only for generic unlock if not specific easter egg
-                this._l = 1;
-                inputOverlay.remove();
-                this._s = 0;
-                this._u = 0;
-                if (this._showOverlayListener) {
-                    window.removeEventListener('keydown', this._showOverlayListener);
+                // --- Flurry Curves (Quadratic) ---
+                for (var i = 0; i < curves.length; i++) {
+                    var curve = curves[i];
+                    ctx.save();
+                    // Animate color, width, alpha
+                    var hue = (t * 40 + i * 60) % 360;
+                    ctx.strokeStyle = `hsl(${hue}, 80%, 60%)`;
+                    ctx.globalAlpha = 0.4 + 0.3 * Math.sin(t + curve.phase);
+                    ctx.lineWidth = 2 + 1.5 * Math.abs(Math.sin(t + curve.phase));
+                    ctx.beginPath();
+                    ctx.moveTo(curve.points[0].x, curve.points[0].y);
+                    for (var j = 1; j < curve.points.length - 2; j++) {
+                        var xc = (curve.points[j].x + curve.points[j + 1].x) / 2;
+                        var yc = (curve.points[j].y + curve.points[j + 1].y) / 2;
+                        ctx.quadraticCurveTo(curve.points[j].x, curve.points[j].y, xc, yc);
+                    }
+                    ctx.quadraticCurveTo(
+                        curve.points[curve.points.length - 2].x,
+                        curve.points[curve.points.length - 2].y,
+                        curve.points[curve.points.length - 1].x,
+                        curve.points[curve.points.length - 1].y
+                    );
+                    ctx.shadowColor = ctx.strokeStyle;
+                    ctx.shadowBlur = 12;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                    for (var k = 0; k < curve.points.length; k++) {
+                        var pt = curve.points[k];
+                        pt.x += pt.vx;
+                        pt.y += pt.vy;
+                        if (pt.x < 0 || pt.x > canvas.width) pt.vx *= -1;
+                        if (pt.y < 0 || pt.y > canvas.height) pt.vy *= -1;
+                    }
                 }
-                if (typeof this.closeWindow === 'function') {
-                    this.closeWindow();
+
+                // --- Bezier Curves ---
+                for (var i = 0; i < beziers.length; i++) {
+                    var bez = beziers[i];
+                    ctx.save();
+                    var hue = (t * 60 + i * 90) % 360;
+                    ctx.strokeStyle = `hsl(${hue}, 90%, 70%)`;
+                    ctx.globalAlpha = 0.3 + 0.2 * Math.cos(t + bez.phase);
+                    ctx.lineWidth = 1.5 + 1.2 * Math.abs(Math.cos(t + bez.phase));
+                    ctx.beginPath();
+                    ctx.moveTo(bez.points[0].x, bez.points[0].y);
+                    ctx.bezierCurveTo(
+                        bez.points[1].x, bez.points[1].y,
+                        bez.points[2].x, bez.points[2].y,
+                        bez.points[3].x, bez.points[3].y
+                    );
+                    ctx.shadowColor = ctx.strokeStyle;
+                    ctx.shadowBlur = 10;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                    for (var k = 0; k < bez.points.length; k++) {
+                        var pt = bez.points[k];
+                        pt.x += pt.vx;
+                        pt.y += pt.vy;
+                        if (pt.x < 0 || pt.x > canvas.width) pt.vx *= -1;
+                        if (pt.y < 0 || pt.y > canvas.height) pt.vy *= -1;
+                    }
                 }
-            } else {
-                errorDiv.textContent = 'Invalid, foolish ' + (this.displayName || 'user'); // Changed message
-                errorDiv.style.display = 'block';
-            }
-        };
 
-        cancelBtn.onclick = () => {
-            inputOverlay.remove();
-            this._s = 0;
-            // No action to go back to main password overlay. Just close.
-        };
+                // --- Spirals ---
+                for (var i = 0; i < spirals.length; i++) {
+                    var sp = spirals[i];
+                    ctx.save();
+                    var hue = (t * 80 + i * 120) % 360;
+                    ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`;
+                    ctx.globalAlpha = sp.alpha + 0.1 * Math.sin(t + sp.phase);
+                    ctx.lineWidth = sp.width + 0.5 * Math.abs(Math.sin(t + sp.phase));
+                    ctx.beginPath();
+                    var spiralPoints = 80;
+                    for (var j = 0; j < spiralPoints; j++) {
+                        var angle = sp.angle + j * 0.2;
+                        var radius = sp.radius + j * 1.2;
+                        var x = sp.cx + Math.cos(angle) * radius;
+                        var y = sp.cy + Math.sin(angle) * radius;
+                        if (j === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.shadowColor = ctx.strokeStyle;
+                    ctx.shadowBlur = 8;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                    sp.angle += sp.speed;
+                }
 
-        secretCodeInput.onkeydown = (e) => { if (e.key === 'Enter') unlockSecretCodeBtn.click(); };
+                // --- Polygons ---
+                for (var i = 0; i < polygons.length; i++) {
+                    var poly = polygons[i];
+                    ctx.save();
+                    var hue = (t * 100 + i * 150) % 360;
+                    ctx.strokeStyle = `hsl(${hue}, 70%, 60%)`;
+                    ctx.globalAlpha = poly.alpha + 0.1 * Math.sin(t + poly.rot);
+                    ctx.lineWidth = poly.width + 0.5 * Math.abs(Math.sin(t + poly.rot));
+                    ctx.beginPath();
+                    for (var j = 0; j <= poly.sides; j++) {
+                        var angle = poly.rot + j * 2 * Math.PI / poly.sides;
+                        var x = poly.cx + Math.cos(angle) * poly.r;
+                        var y = poly.cy + Math.sin(angle) * poly.r;
+                        if (j === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.shadowColor = ctx.strokeStyle;
+                    ctx.shadowBlur = 6;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                    poly.rot += poly.rotSpeed;
+                }
+
+                // --- Particles (with Glow) ---
+                for (var i = 0; i < particles.length; i++) {
+                    var p = particles[i];
+                    ctx.save();
+                    ctx.globalAlpha = p.alpha;
+                    ctx.shadowColor = p.color;
+                    ctx.shadowBlur = p.glow;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                    if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+                }
+
+                // Schedule next frame
+                this._animationFrameId = requestAnimationFrame(animate);
+            };
+        this._animationFrameId = requestAnimationFrame(animate);
     }
 
 
