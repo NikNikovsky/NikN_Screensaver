@@ -721,6 +721,7 @@ class proc extends ThirdPartyAppProcess {
                         <option value='default' ${s.colorScheme === 'default' ? 'selected' : ''}>Default</option>
                         <option value='cool' ${s.colorScheme === 'cool' ? 'selected' : ''}>Cool</option>
                         <option value='warm' ${s.colorScheme === 'warm' ? 'selected' : ''}>Warm</option>
+                        <option value='rgb' ${s.colorScheme === 'rgb' ? 'selected' : ''}>RGB (Rainbow)</option>
                     </select></label>
                 </div>
                 <div style='display:flex;gap:16px;margin-top:8px;'>
@@ -882,6 +883,23 @@ class proc extends ThirdPartyAppProcess {
             default: ['#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#A66CFF', '#FF6EC7', '#00C2CB', '#FFB26B'],
             cool: ['#4D96FF', '#A66CFF', '#00C2CB', '#6BCB77'],
             warm: ['#FF6B6B', '#FFD93D', '#FFB26B', '#FF6EC7'],
+            rgb: [
+                '#FF0000', // Red
+                '#FF7F00', // Orange
+                '#FFFF00', // Yellow
+                '#00FF00', // Green
+                '#0000FF', // Blue
+                '#4B0082', // Indigo
+                '#9400D3', // Violet
+                '#00FFFF', // Cyan
+                '#FF00FF', // Magenta
+                '#FFFFFF', // White
+                '#39FF14', // Neon Green
+                '#FF3131', // Neon Red
+                '#F3F315', // Neon Yellow
+                '#00BFFF', // Deep Sky Blue
+                '#FF1493', // Deep Pink
+            ],
         };
         var colors = colorSchemes[settings.colorScheme] || colorSchemes.default;
         function random(min, max) {
