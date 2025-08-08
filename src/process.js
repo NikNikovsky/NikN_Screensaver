@@ -30,34 +30,37 @@ var LogLevel = {
 class proc extends ThirdPartyAppProcess {
     constructor(handler, pid, parentPid, app, workingDirectory, ...args) {
         super(handler, pid, parentPid, app, workingDirectory);
-        // Obfuscated boolean flags: 0 for false, 1 for true
-        this._u = 0; // Flag to indicate if the password overlay is active 
-        this._l = 0;  // Flag to indicate if the app is unlocked 
-        this.profilePicture = null; // User's profile picture URL
-        this.displayName = null;    // User's display name
-        this._showOverlayListener = null; // Listener for space key
+        // Only initialize fields and basic state here
+        this._u = 0;
+        this._l = 0;
+        this.profilePicture = null;
+        this.displayName = null;
+        this._showOverlayListener = null;
+        this._localPasswordHash = null;
+        this._localPassword = null;
+        this._s = 0;
+        this._computedSecretCodeHashes = [];
+        this._m = 0;
+        this._effectTimeout = null;
+        this._effectDismissListener = null;
+        this._lockScreenPasswordFilePath = `U:/Config/NikN_Screensaver/lockscreen.pwd.hash`;
+        this._h = 0;
+        this._animationFrameId = null;
+        // Do NOT do any DOM, async, or logic here!
+    }
 
-        this._localPasswordHash = null; // Stores SHA256 hash if persistent storage is used for main password
-        this._localPassword = null;     // Stores plaintext password in-memory if persistent storage fails for main password
+    // --- All methods below are at the top level of the class ---
 
-        this._s = 0; // Flag for secret code input overlay state 
-        this._computedSecretCodeHashes = []; // Stores dynamically computed hashes of codes
-        this._m = 0; // New flag to control effect animation 
-        this._effectTimeout = null; // Timeout ID for effect auto-dismiss 
-        this._effectDismissListener = null; // Listener for dismissing effect 
-
-        // Define file path for the main lock screen password within the app's working directory
-        this._lockScreenPasswordFilePath = `U:/Config/NikN_Screensaver/lockscreen.pwd.hash`
+    /**
+     * ArcOS will call this after construction. All DOM, async, and startup logic goes here.
+     */
+    async start() {
         if (typeof this.Log === 'function') this.Log("Lock screen password file path set to: " + this._lockScreenPasswordFilePath, LogLevel.info);
-
-        this._h = 0; // Determined during constructor/render 
-
         // --- Initial Feature Detection for Persistent Hashing ---
         try {
             if (typeof util !== 'undefined' && typeof util.sha256 === 'function' &&
                 typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' && typeof convert.textToBlob === 'function' &&
                 this.fs && typeof this.fs.readFile === 'function' && typeof this.fs.writeFile === 'function') {
-
                 this._h = 1;
                 if (typeof this.Log === 'function') this.Log("Persistent hashing and file system operations are initially detected as available.", LogLevel.info);
             } else {
@@ -82,17 +85,12 @@ class proc extends ThirdPartyAppProcess {
                 action: (proc, event) => {
                     if (this._u === 0 && this._l === 0) {
                         this.showSecretCodeInputOverlay();
-                   }
-
+                    }
                 },
-
-
                 global: true
             });
         }
 
-        // Animation frame management
-        this._animationFrameId = null;
         var body = this.getBody();
         if (!body) return;
         body.innerHTML = htmlContent;
@@ -114,9 +112,7 @@ class proc extends ThirdPartyAppProcess {
         }
 
         // Async initialization for password and secret code hashes
-    const self = this;
-    (async () => {
-            // Attempt to load the hashed lock screen password from file
+        try {
             if (this._h === 1 && this._lockScreenPasswordFilePath) {
                 try {
                     var fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
@@ -151,11 +147,9 @@ class proc extends ThirdPartyAppProcess {
                 // Otherwise, show the normal password overlay
                 this.showPasswordOverlay();
             }
-        })().catch(e => {
-            if (typeof self.Log === 'function') {
-                self.Log('Startup error: ' + (e && e.message ? e.message : e), LogLevel.error);
-            }
-        });
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Startup error: ' + (e && e.message ? e.message : e), LogLevel.error);
+        }
 
         // Listen for space key to show password overlay
         this._showOverlayListener = (e) => {
@@ -165,323 +159,10 @@ class proc extends ThirdPartyAppProcess {
         };
         window.addEventListener('keydown', this._showOverlayListener);
 
-    // Start the Flurry-style animation
-    this.startFlurryAnimation();
-    // End of constructor
+        // Start the Flurry-style animation
+        this.startFlurryAnimation();
     }
 
-    /**
-     * Cancels the current animation frame if running.
-     */
-    _cancelAnimation() {
-        if (this._animationFrameId !== null) {
-            cancelAnimationFrame(this._animationFrameId);
-            this._animationFrameId = null;
-        }
-    }
-
-    /**
-     * Handles the application closing event.
-     * Prevents closing unless the app is unlocked.
-     * @returns {boolean} True if the app can close, false otherwise.
-     */
-    async onClose() {
-        if (this._l === 1) {
-            return true;
-        }
-        // Ensure we don't show multiple overlays if one is already active
-        if (this._u === 0 && this._s === 0) {
-            this.showPasswordOverlay();
-        }
-        return false;
-    }
-
-    showSetPasswordDialog() {
-        var body = this.getBody();
-        if (!body) return;
-
-        var setupOverlay = document.createElement('div');
-            if (this._disposed) return;
-
-            // Cancel any previous animation frame
-            this._cancelAnimation();
-
-            var canvas = this.getBody().querySelector('#flurry-canvas');
-            if (!canvas) {
-                if (typeof this.Log === 'function') this.Log("Flurry canvas not found!", LogLevel.error);
-                return;
-            }
-
-            var resizeCanvas = () => {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-            };
-            window.addEventListener('resize', resizeCanvas);
-            resizeCanvas();
-
-            var ctx = canvas.getContext('2d');
-            // Use settings if available
-            var NUM_CURVES = this._settings?.curves ?? 5;
-            var NUM_BEZIERS = this._settings?.beziers ?? 3;
-            var NUM_SPIRALS = this._settings?.spirals ?? 2;
-            var NUM_POLYGONS = this._settings?.polygons ?? 2;
-            var NUM_PARTICLES = this._settings?.particles ?? 60;
-            var POINTS_PER_CURVE = 6;
-            var curves = [];
-            var beziers = [];
-            var spirals = [];
-            var polygons = [];
-            var particles = [];
-            var colors = [
-                '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#A66CFF', '#FF6EC7', '#00C2CB', '#FFB26B'
-            ];
-
-            function random(min, max) {
-                return Math.random() * (max - min) + min;
-            }
-
-            // --- Flurry Curves (Quadratic) ---
-            function createCurve() {
-                var points = [];
-                for (var i = 0; i < POINTS_PER_CURVE; i++) {
-                    points.push({
-                        x: random(0, canvas.width),
-                        y: random(0, canvas.height),
-                        vx: random(-1, 1),
-                        vy: random(-1, 1)
-                    });
-                }
-                return {
-                    points,
-                    color: colors[Math.floor(random(0, colors.length))],
-                    alpha: random(0.3, 0.7),
-                    width: random(1.5, 3.5),
-                    phase: random(0, Math.PI * 2)
-                };
-            }
-            for (var i = 0; i < NUM_CURVES; i++) curves.push(createCurve());
-
-            // --- Bezier Curves ---
-            function createBezier() {
-                var p = [];
-                for (var i = 0; i < 4; i++) {
-                    p.push({
-                        x: random(0, canvas.width),
-                        y: random(0, canvas.height),
-                        vx: random(-1.2, 1.2),
-                        vy: random(-1.2, 1.2)
-                    });
-                }
-                return {
-                    points: p,
-                    color: colors[Math.floor(random(0, colors.length))],
-                    alpha: random(0.25, 0.6),
-                    width: random(1.5, 3.5),
-                    phase: random(0, Math.PI * 2)
-                };
-            }
-            for (var i = 0; i < NUM_BEZIERS; i++) beziers.push(createBezier());
-
-            // --- Spirals ---
-            function createSpiral() {
-                return {
-                    cx: random(0, canvas.width),
-                    cy: random(0, canvas.height),
-                    angle: random(0, Math.PI * 2),
-                    radius: random(40, 120),
-                    color: colors[Math.floor(random(0, colors.length))],
-                    alpha: random(0.18, 0.35),
-                    width: random(1.2, 2.5),
-                    speed: random(0.01, 0.03),
-                    phase: random(0, Math.PI * 2)
-                };
-            }
-            for (var i = 0; i < NUM_SPIRALS; i++) spirals.push(createSpiral());
-
-            // --- Polygons ---
-            function createPolygon() {
-                var sides = Math.floor(random(5, 8));
-                var r = random(30, 80);
-                var cx = random(0, canvas.width);
-                var cy = random(0, canvas.height);
-                var rot = random(0, Math.PI * 2);
-                return {
-                    sides,
-                    r,
-                    cx,
-                    cy,
-                    rot,
-                    color: colors[Math.floor(random(0, colors.length))],
-                    alpha: random(0.15, 0.3),
-                    width: random(1.2, 2.5),
-                    rotSpeed: random(-0.01, 0.01)
-                };
-            }
-            for (var i = 0; i < NUM_POLYGONS; i++) polygons.push(createPolygon());
-
-            // --- Particles (with Glow) ---
-            function createParticle() {
-                return {
-                    x: random(0, canvas.width),
-                    y: random(0, canvas.height),
-                    vx: random(-0.7, 0.7),
-                    vy: random(-0.7, 0.7),
-                    color: colors[Math.floor(random(0, colors.length))],
-                    alpha: random(0.25, 0.7),
-                    radius: random(2, 6),
-                    glow: random(8, 24)
-                };
-            }
-            for (var i = 0; i < NUM_PARTICLES; i++) particles.push(createParticle());
-
-            var t = 0;
-            const animate = () => {
-                if (this._disposed || this._m === 1) {
-                    if (this._m === 1 && canvas) ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    return;
-                }
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                t += 0.016;
-
-                // --- Flurry Curves (Quadratic) ---
-                for (var i = 0; i < curves.length; i++) {
-                    var curve = curves[i];
-                    ctx.save();
-                    // Animate color, width, alpha
-                    var hue = (t * 40 + i * 60) % 360;
-                    ctx.strokeStyle = `hsl(${hue}, 80%, 60%)`;
-                    ctx.globalAlpha = 0.4 + 0.3 * Math.sin(t + curve.phase);
-                    ctx.lineWidth = 2 + 1.5 * Math.abs(Math.sin(t + curve.phase));
-                    ctx.beginPath();
-                    ctx.moveTo(curve.points[0].x, curve.points[0].y);
-                    for (var j = 1; j < curve.points.length - 2; j++) {
-                        var xc = (curve.points[j].x + curve.points[j + 1].x) / 2;
-                        var yc = (curve.points[j].y + curve.points[j + 1].y) / 2;
-                        ctx.quadraticCurveTo(curve.points[j].x, curve.points[j].y, xc, yc);
-                    }
-                    ctx.quadraticCurveTo(
-                        curve.points[curve.points.length - 2].x,
-                        curve.points[curve.points.length - 2].y,
-                        curve.points[curve.points.length - 1].x,
-                        curve.points[curve.points.length - 1].y
-                    );
-                    ctx.shadowColor = ctx.strokeStyle;
-                    ctx.shadowBlur = 12;
-                    ctx.stroke();
-                    ctx.shadowBlur = 0;
-                    ctx.restore();
-                    for (var k = 0; k < curve.points.length; k++) {
-                        var pt = curve.points[k];
-                        pt.x += pt.vx;
-                        pt.y += pt.vy;
-                        if (pt.x < 0 || pt.x > canvas.width) pt.vx *= -1;
-                        if (pt.y < 0 || pt.y > canvas.height) pt.vy *= -1;
-                    }
-                }
-
-                // --- Bezier Curves ---
-                for (var i = 0; i < beziers.length; i++) {
-                    var bez = beziers[i];
-                    ctx.save();
-                    var hue = (t * 60 + i * 90) % 360;
-                    ctx.strokeStyle = `hsl(${hue}, 90%, 70%)`;
-                    ctx.globalAlpha = 0.3 + 0.2 * Math.cos(t + bez.phase);
-                    ctx.lineWidth = 1.5 + 1.2 * Math.abs(Math.cos(t + bez.phase));
-                    ctx.beginPath();
-                    ctx.moveTo(bez.points[0].x, bez.points[0].y);
-                    ctx.bezierCurveTo(
-                        bez.points[1].x, bez.points[1].y,
-                        bez.points[2].x, bez.points[2].y,
-                        bez.points[3].x, bez.points[3].y
-                    );
-                    ctx.shadowColor = ctx.strokeStyle;
-                    ctx.shadowBlur = 10;
-                    ctx.stroke();
-                    ctx.shadowBlur = 0;
-                    ctx.restore();
-                    for (var k = 0; k < bez.points.length; k++) {
-                        var pt = bez.points[k];
-                        pt.x += pt.vx;
-                        pt.y += pt.vy;
-                        if (pt.x < 0 || pt.x > canvas.width) pt.vx *= -1;
-                        if (pt.y < 0 || pt.y > canvas.height) pt.vy *= -1;
-                    }
-                }
-
-                // --- Spirals ---
-                for (var i = 0; i < spirals.length; i++) {
-                    var sp = spirals[i];
-                    ctx.save();
-                    var hue = (t * 80 + i * 120) % 360;
-                    ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`;
-                    ctx.globalAlpha = sp.alpha + 0.1 * Math.sin(t + sp.phase);
-                    ctx.lineWidth = sp.width + 0.5 * Math.abs(Math.sin(t + sp.phase));
-                    ctx.beginPath();
-                    var spiralPoints = 80;
-                    for (var j = 0; j < spiralPoints; j++) {
-                        var angle = sp.angle + j * 0.2;
-                        var radius = sp.radius + j * 1.2;
-                        var x = sp.cx + Math.cos(angle) * radius;
-                        var y = sp.cy + Math.sin(angle) * radius;
-                        if (j === 0) ctx.moveTo(x, y);
-                        else ctx.lineTo(x, y);
-                    }
-                    ctx.shadowColor = ctx.strokeStyle;
-                    ctx.shadowBlur = 8;
-                    ctx.stroke();
-                    ctx.shadowBlur = 0;
-                    ctx.restore();
-                    sp.angle += sp.speed;
-                }
-
-                // --- Polygons ---
-                for (var i = 0; i < polygons.length; i++) {
-                    var poly = polygons[i];
-                    ctx.save();
-                    var hue = (t * 100 + i * 150) % 360;
-                    ctx.strokeStyle = `hsl(${hue}, 70%, 60%)`;
-                    ctx.globalAlpha = poly.alpha + 0.1 * Math.sin(t + poly.rot);
-                    ctx.lineWidth = poly.width + 0.5 * Math.abs(Math.sin(t + poly.rot));
-                    ctx.beginPath();
-                    for (var j = 0; j <= poly.sides; j++) {
-                        var angle = poly.rot + j * 2 * Math.PI / poly.sides;
-                        var x = poly.cx + Math.cos(angle) * poly.r;
-                        var y = poly.cy + Math.sin(angle) * poly.r;
-                        if (j === 0) ctx.moveTo(x, y);
-                        else ctx.lineTo(x, y);
-                    }
-                    ctx.shadowColor = ctx.strokeStyle;
-                    ctx.shadowBlur = 6;
-                    ctx.stroke();
-                    ctx.shadowBlur = 0;
-                    ctx.restore();
-                    poly.rot += poly.rotSpeed;
-                }
-
-                // --- Particles (with Glow) ---
-                for (var i = 0; i < particles.length; i++) {
-                    var p = particles[i];
-                    ctx.save();
-                    ctx.globalAlpha = p.alpha;
-                    ctx.shadowColor = p.color;
-                    ctx.shadowBlur = p.glow;
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-                    ctx.fillStyle = p.color;
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
-                    ctx.restore();
-                    p.x += p.vx;
-                    p.y += p.vy;
-                    if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-                    if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
-                }
-
-                // Schedule next frame
-                this._animationFrameId = requestAnimationFrame(animate);
-            };
-        this._animationFrameId = requestAnimationFrame(animate);
-    }
 
 
     /**
