@@ -28,6 +28,11 @@ var LogLevel = {
 // This class extends ThirdPartyAppProcess, which is assumed to provide
 // methods like getBody(), userPreferences(), userDaemon, handler, closeWindow.
 class proc extends ThirdPartyAppProcess {
+    // Returns the main UI body element for overlays/modals
+    _getUiBody() {
+        // Adjust selector if ArcOS requires a specific root element
+        return document.body;
+    }
     constructor(handler, pid, parentPid, app, workingDirectory, ...args) {
         super(handler, pid, parentPid, app, workingDirectory);
         // Obfuscated boolean flags: 0 for false, 1 for true
@@ -483,176 +488,116 @@ class proc extends ThirdPartyAppProcess {
      * Displays the password entry overlay for unlocking the screen.
      */
     showPasswordOverlay() {
-        if (this._u === 1) return; // Prevent multiple overlays
+        if (this._u === 1) return;
         this._u = 1;
-        var body = this.getBody();
+        const body = this._getUiBody();
         if (!body) return;
-
-        // If secret code overlay is active, remove it before showing main password overlay
-        var secretCodeOverlay = body.querySelector('#secret-code-input-overlay');
-        if (secretCodeOverlay) {
-            secretCodeOverlay.remove();
-            this._s = 0; // Reset secret code overlay flag
-        }
-
-        var overlay = document.createElement('div');
+        const oldOverlay = body.querySelector('#lock-overlay');
+        if (oldOverlay) oldOverlay.remove();
+        const overlay = document.createElement('div');
         overlay.id = 'lock-overlay';
-         overlay.style = `
+        overlay.style = `
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background-color: rgba(0, 0, 0, 0.85);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 10; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+            z-index: 10000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         `;
         overlay.innerHTML = `
-                <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
-                    <img src="${this.profilePicture || 'https://placehold.co/96x96/222222/ffffff?text=User'}" alt="Profile"
-                         style="width: 96px; height: 96px; border-radius: 9999px; object-fit: cover; background-color: #4b5563; margin-bottom: 16px;"
-                         onerror="this.src='https://placehold.co/96x96/222222/ffffff?text=User'; this.style.display='block';" />
-                    <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 16px;">${this.displayName || 'User'}</div>
-
-                    <!-- Single Password Field -->
-                    <input id="lock-password" type="password" placeholder="Enter password"
-                           style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
-                           onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
-
-                    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                        <button id="unlock-btn"
-                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                                onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
-                            Unlock
-                        </button>
-                        <button id="cancel-btn"
-                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                                onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
-                            Cancel
-                        </button>
-                    </div>
-                    <div id="unlock-error" style="color: #f87171; margin-top: 8px; font-size: 14px; display: none;"></div>
-
-                    <!-- Power Options -->
-                    <div style="position: absolute; bottom: 32px; right: 32px; display: flex; flex-direction: column; gap: 8px;">
-                        <button id="shutdown-btn"
-                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #dc2626; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                                onmouseover="this.style.backgroundColor='#b91c1c';" onmouseout="this.style.backgroundColor='#dc2626';">
-                            Shutdown
-                        </button>
-                        <button id="logoff-btn"
-                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #d97706; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                                onmouseover="this.style.backgroundColor='#b45309';" onmouseout="this.style.backgroundColor='#d97706';">
-                            Logoff
-                        </button>
-                        <button id="restart-btn"
-                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #16a34a; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                                onmouseover="this.style.backgroundColor='#15803d';" onmouseout="this.style.backgroundColor='#16a34a';">
-                            Restart
-                        </button>
-                    </div>
+            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+                <img src="${this.profilePicture || 'https://placehold.co/96x96/222222/ffffff?text=User'}" alt="Profile"
+                     style="width: 96px; height: 96px; border-radius: 9999px; object-fit: cover; background-color: #4b5563; margin-bottom: 16px;"
+                     onerror="this.src='https://placehold.co/96x96/222222/ffffff?text=User'; this.style.display='block';" />
+                <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 16px;">${this.displayName || 'User'}</div>
+                <input id="lock-password" type="password" placeholder="Enter password"
+                       style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
+                       autofocus />
+                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                    <button id="unlock-btn"
+                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer;">Unlock</button>
+                    <button id="cancel-btn"
+                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer;">Cancel</button>
+                    <button id="settings-btn"
+                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #10b981; color: #ffffff; font-weight: 600; cursor: pointer;">Settings</button>
                 </div>
-            `;
+                <div id="unlock-error" style="color: #f87171; margin-top: 8px; font-size: 14px; display: none;"></div>
+            </div>
+        `;
         body.appendChild(overlay);
-
-        var unlockBtn = overlay.querySelector('#unlock-btn');
-        var cancelBtn = overlay.querySelector('#cancel-btn');
-        var passwordInput = overlay.querySelector('#lock-password');
-        var errorDiv = overlay.querySelector('#unlock-error');
-        var shutdownBtn = overlay.querySelector('#shutdown-btn');
-        var logoffBtn = overlay.querySelector('#logoff-btn');
-        var restartBtn = overlay.querySelector('#restart-btn');
-
-        if (!unlockBtn || !cancelBtn || !passwordInput || !errorDiv || !shutdownBtn || !logoffBtn || !restartBtn) return;
-
+        const unlockBtn = overlay.querySelector('#unlock-btn');
+        const cancelBtn = overlay.querySelector('#cancel-btn');
+        const settingsBtn = overlay.querySelector('#settings-btn');
+        const passwordInput = overlay.querySelector('#lock-password');
+        const errorDiv = overlay.querySelector('#unlock-error');
         unlockBtn.onclick = async () => {
-            var password = passwordInput.value;
-            if (!password) {
-                errorDiv.textContent = 'Please enter your password.';
-                errorDiv.style.display = 'block';
-                return;
-            }
-
-            var unlockedSuccessfully = 0;
-
             try {
-                // 1. Validate against the local lock screen password (if set)
-                if (this._h === 1 && this._localPasswordHash) {
-                    if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
-                        var enteredPasswordHash = await util.sha256(password);
-                        if (enteredPasswordHash === this._localPasswordHash) {
-                            unlockedSuccessfully = 1;
-                        }
-                    } else {
-                        if (typeof this.Log === 'function') this.Log("util.sha256 is not available for validation. Cannot validate persistent hash.", LogLevel.error);
-                    }
+                const password = passwordInput.value;
+                if (!password) {
+                    errorDiv.textContent = 'Please enter your password.';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+                let unlocked = false;
+                if (this._h === 1 && this._localPasswordHash && typeof util !== 'undefined' && typeof util.sha256 === 'function') {
+                    const enteredHash = await util.sha256(password);
+                    if (enteredHash === this._localPasswordHash) unlocked = true;
                 } else if (this._h === 0 && this._localPassword) {
-                    if (password === this._localPassword) {
-                        unlockedSuccessfully = 1;
-                    }
+                    if (password === this._localPassword) unlocked = true;
                 }
-
-                // 2. If not unlocked yet, try validating against ArcOS account password
-                if (unlockedSuccessfully === 0 && this.userDaemon && typeof this.userDaemon.validatePassword === 'function') {
+                if (!unlocked && this.userDaemon && typeof this.userDaemon.validatePassword === 'function') {
                     try {
-                        unlockedSuccessfully = await this.userDaemon.validatePassword(password) ? 1 : 0; // Convert boolean to 0/1
-                        if (unlockedSuccessfully === 1) {
-                            if (typeof this.Log === 'function') this.Log("Unlocked using ArcOS account password.", LogLevel.info);
-                        }
+                        unlocked = await this.userDaemon.validatePassword(password);
+                        if (unlocked && typeof this.Log === 'function') this.Log('Unlocked using ArcOS account password.', LogLevel.info);
                     } catch (e) {
-                        if (typeof this.Log === 'function') this.Log("Error validating ArcOS account password (userDaemon.validatePassword): " + e.message, LogLevel.error);
-                        unlockedSuccessfully = 0;
+                        if (typeof this.Log === 'function') this.Log('Error validating ArcOS account password: ' + e.message, LogLevel.error);
                     }
                 }
-
-                if (unlockedSuccessfully === 1) {
-                    this._l = 1;
+                if (unlocked) {
                     overlay.remove();
                     this._u = 0;
-                    if (this._showOverlayListener) {
-                        window.removeEventListener('keydown', this._showOverlayListener);
-                    }
-                    if (typeof this.closeWindow === 'function') {
-                        this.closeWindow();
-                    }
                 } else {
                     errorDiv.textContent = 'Incorrect password.';
                     errorDiv.style.display = 'block';
+                    this._showUserError('Incorrect password. Please try again.');
                 }
             } catch (e) {
-                errorDiv.textContent = 'An unexpected error occurred during password validation. Please check console for details.';
+                errorDiv.textContent = 'An unexpected error occurred.';
                 errorDiv.style.display = 'block';
-                if (typeof this.Log === 'function') this.Log("Unhandled error during unlock attempt: " + e.message, LogLevel.error);
+                this.Log('Unlock error: ' + (e && e.message ? e.message : e), LogLevel.error);
+                this._showUserError('An unexpected error occurred during password validation.');
             }
         };
-
         cancelBtn.onclick = () => {
             overlay.remove();
             this._u = 0;
+            setTimeout(() => this._restoreAnimationAndListeners(), 0);
         };
-
-        shutdownBtn.onclick = async () => {
-            if (this.userDaemon && typeof this.userDaemon.shutdown === 'function') {
-                await this.userDaemon.shutdown();
-            } else {
-                if (typeof this.Log === 'function') this.Log("Shutdown functionality not available via userDaemon.", LogLevel.warning);
-            }
+        settingsBtn.onclick = () => {
+            this._showSettingsModal();
         };
+        passwordInput.onkeydown = (e) => { if (e.key === 'Enter') unlockBtn.click(); };
+        setTimeout(() => passwordInput.focus(), 0);
+    }
 
-        logoffBtn.onclick = async () => {
-            if (this.userDaemon && typeof this.userDaemon.logoff === 'function') {
-                await this.userDaemon.logoff();
-            } else {
-                if (typeof this.Log === 'function') this.Log("Logoff functionality not available via userDaemon.", LogLevel.warning);
-            }
-        };
-
-        restartBtn.onclick = async () => {
-            if (this.userDaemon && typeof this.userDaemon.restart === 'function') {
-                await this.userDaemon.restart();
-            } else {
-                if (typeof this.Log === 'function') this.Log("Restart functionality not available via userDaemon.", LogLevel.warning);
-            }
-        };
-
-        passwordInput.onkeydown = (e) => {
-            if (e.key === 'Enter') unlockBtn.click();
+    _showSettingsModal() {
+        const body = this._getUiBody();
+        if (!body) return;
+        const oldModal = body.querySelector('#settings-modal');
+        if (oldModal) oldModal.remove();
+        const modal = document.createElement('div');
+        modal.id = 'settings-modal';
+        modal.style = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0,0,0,0.7); z-index: 20000; display: flex; align-items: center; justify-content: center;`;
+        modal.innerHTML = `
+            <div style="background: #222; color: #fff; padding: 32px; border-radius: 16px; min-width: 320px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center;">
+                <h2 style="font-size: 1.5em; margin-bottom: 16px;">Settings</h2>
+                <div style="margin-bottom: 16px;">(Settings UI goes here)</div>
+                <button id="close-settings-btn" style="margin-top: 16px; padding: 8px 24px; border-radius: 8px; border: none; background: #2563eb; color: #fff; font-weight: 600; font-size: 1em; cursor: pointer;">Close</button>
+            </div>
+        `;
+        body.appendChild(modal);
+        modal.querySelector('#close-settings-btn').onclick = () => {
+            modal.remove();
         };
     }
 
