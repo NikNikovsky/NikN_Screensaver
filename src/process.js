@@ -28,6 +28,35 @@ var LogLevel = {
 // This class extends ThirdPartyAppProcess, which is assumed to provide
 // methods like getBody(), userPreferences(), userDaemon, handler, closeWindow.
 class proc extends ThirdPartyAppProcess {
+    // Shows a user error message as a temporary overlay
+    _showUserError(message) {
+        const body = this._getUiBody();
+        if (!body) return;
+        let errorDiv = body.querySelector('#user-error-overlay');
+        if (errorDiv) errorDiv.remove();
+        errorDiv = document.createElement('div');
+        errorDiv.id = 'user-error-overlay';
+        errorDiv.style = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;padding:16px 32px;border-radius:8px;z-index:30000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.2);font-family:Segoe UI,sans-serif;';
+        errorDiv.textContent = message;
+        body.appendChild(errorDiv);
+        setTimeout(() => { if (errorDiv.parentNode) errorDiv.remove(); }, 3000);
+    }
+    // Restores animation and overlay listeners after closing overlays
+    _restoreAnimationAndListeners() {
+        // Restart the animation if needed
+        if (typeof this.startFlurryAnimation === 'function') {
+            this.startFlurryAnimation();
+        }
+        // Re-add the space key listener if not present
+        if (!this._showOverlayListener) {
+            this._showOverlayListener = (e) => {
+                if (this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
+                    this.showPasswordOverlay();
+                }
+            };
+            window.addEventListener('keydown', this._showOverlayListener);
+        }
+    }
     // Returns the main UI body element for overlays/modals
     _getUiBody() {
         // Adjust selector if ArcOS requires a specific root element
@@ -534,6 +563,7 @@ class proc extends ThirdPartyAppProcess {
                 if (!password) {
                     errorDiv.textContent = 'Please enter your password.';
                     errorDiv.style.display = 'block';
+                    this._showUserError('Please enter your password.');
                     return;
                 }
                 let unlocked = false;
@@ -552,8 +582,13 @@ class proc extends ThirdPartyAppProcess {
                     }
                 }
                 if (unlocked) {
+                    this._l = 1; // Mark as unlocked
                     overlay.remove();
                     this._u = 0;
+                    this._restoreAnimationAndListeners();
+                    if (typeof this.closeWindow === 'function') {
+                        this.closeWindow();
+                    }
                 } else {
                     errorDiv.textContent = 'Incorrect password.';
                     errorDiv.style.display = 'block';
@@ -562,7 +597,7 @@ class proc extends ThirdPartyAppProcess {
             } catch (e) {
                 errorDiv.textContent = 'An unexpected error occurred.';
                 errorDiv.style.display = 'block';
-                this.Log('Unlock error: ' + (e && e.message ? e.message : e), LogLevel.error);
+                if (typeof this.Log === 'function') this.Log('Unlock error: ' + (e && e.message ? e.message : e), LogLevel.error);
                 this._showUserError('An unexpected error occurred during password validation.');
             }
         };
