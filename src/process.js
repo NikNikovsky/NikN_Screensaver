@@ -28,6 +28,43 @@ var LogLevel = {
 // This class extends ThirdPartyAppProcess, which is assumed to provide
 // methods like getBody(), userPreferences(), userDaemon, handler, closeWindow.
 class proc extends ThirdPartyAppProcess {
+    // Loads settings from config file or defaults
+    async _loadSettings() {
+        const defaultSettings = {
+            numCurves: 12,
+            pointsPerCurve: 10,
+            speed: 1.2,
+            colorScheme: 'default',
+        };
+        this._settings = defaultSettings;
+        try {
+            if (this.fs && typeof this.fs.readFile === 'function') {
+                const configPath = 'U:/Config/NikN_Screensaver/screensaver.json';
+                const file = await this.fs.readFile(configPath);
+                if (file) {
+                    const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' ? convert.arrayToText(new Uint8Array(file)) : new TextDecoder().decode(new Uint8Array(file));
+                    const parsed = JSON.parse(text);
+                    this._settings = Object.assign({}, defaultSettings, parsed);
+                }
+            }
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Could not load screensaver settings: ' + e.message, LogLevel.warning);
+        }
+    }
+
+    // Saves settings to config file
+    async _saveSettings() {
+        try {
+            if (this.fs && typeof this.fs.writeFile === 'function') {
+                const configPath = 'U:/Config/NikN_Screensaver/screensaver.json';
+                const json = JSON.stringify(this._settings);
+                const blob = typeof convert !== 'undefined' && typeof convert.textToBlob === 'function' ? convert.textToBlob(json, 'application/json') : new Blob([json], { type: 'application/json' });
+                await this.fs.writeFile(configPath, blob);
+            }
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Could not save screensaver settings: ' + e.message, LogLevel.error);
+        }
+    }
     // Shows a user error message as a temporary overlay
     _showUserError(message) {
         const body = this._getUiBody();
@@ -167,6 +204,7 @@ class proc extends ThirdPartyAppProcess {
      * It sets up the lock screen, checks for password existence, and starts the animation.
      */
     async render() {
+    await this._loadSettings();
         var body = this.getBody();
         if (!body) return;
         body.innerHTML = htmlContent;
@@ -623,16 +661,40 @@ class proc extends ThirdPartyAppProcess {
         modal.style = `
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background-color: rgba(0,0,0,0.7); z-index: 20000; display: flex; align-items: center; justify-content: center;`;
+    const s = this._settings || { numCurves: 12, pointsPerCurve: 10, speed: 1.2, colorScheme: 'default' };
         modal.innerHTML = `
-            <div style="background: #222; color: #fff; padding: 32px; border-radius: 16px; min-width: 320px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center;">
-                <h2 style="font-size: 1.5em; margin-bottom: 16px;">Settings</h2>
-                <div style="margin-bottom: 16px;">(Settings UI goes here)</div>
-                <button id="close-settings-btn" style="margin-top: 16px; padding: 8px 24px; border-radius: 8px; border: none; background: #2563eb; color: #fff; font-weight: 600; font-size: 1em; cursor: pointer;">Close</button>
+            <div style="background: #222; color: #fff; padding: 32px; border-radius: 16px; min-width: 340px; max-width: 95vw; box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center;">
+                <h2 style="font-size: 1.5em; margin-bottom: 16px;">Screensaver Settings</h2>
+                <div style="margin-bottom: 16px; width: 100%;">
+                    <label style='display:block;margin-bottom:8px;'>Curves: <input id='num-curves' type='number' min='1' max='40' value='${s.numCurves}' style='width:60px;margin-left:8px;'></label>
+                    <label style='display:block;margin-bottom:8px;'>Points per Curve: <input id='points-per-curve' type='number' min='3' max='30' value='${s.pointsPerCurve}' style='width:60px;margin-left:8px;'></label>
+                    <label style='display:block;margin-bottom:8px;'>Speed: <input id='curve-speed' type='number' min='0.1' max='5' step='0.1' value='${s.speed}' style='width:60px;margin-left:8px;'></label>
+                    <label style='display:block;margin-bottom:8px;'>Color Scheme: <select id='color-scheme' style='margin-left:8px;'>
+                        <option value='default' ${s.colorScheme === 'default' ? 'selected' : ''}>Default</option>
+                        <option value='cool' ${s.colorScheme === 'cool' ? 'selected' : ''}>Cool</option>
+                        <option value='warm' ${s.colorScheme === 'warm' ? 'selected' : ''}>Warm</option>
+                    </select></label>
+                </div>
+                <div style='display:flex;gap:16px;margin-top:8px;'>
+                    <button id="save-settings-btn" style="padding: 8px 24px; border-radius: 8px; border: none; background: #10b981; color: #fff; font-weight: 600; font-size: 1em; cursor: pointer;">Save</button>
+                    <button id="close-settings-btn" style="padding: 8px 24px; border-radius: 8px; border: none; background: #2563eb; color: #fff; font-weight: 600; font-size: 1em; cursor: pointer;">Close</button>
+                </div>
             </div>
         `;
         body.appendChild(modal);
         modal.querySelector('#close-settings-btn').onclick = () => {
             modal.remove();
+        };
+        modal.querySelector('#save-settings-btn').onclick = async () => {
+            // Read values
+            const numCurves = Math.max(1, Math.min(40, parseInt(modal.querySelector('#num-curves').value) || 12));
+            const pointsPerCurve = Math.max(3, Math.min(30, parseInt(modal.querySelector('#points-per-curve').value) || 10));
+            const speed = Math.max(0.1, Math.min(5, parseFloat(modal.querySelector('#curve-speed').value) || 1.2));
+            const colorScheme = modal.querySelector('#color-scheme').value;
+            this._settings = { numCurves, pointsPerCurve, speed, colorScheme };
+            await this._saveSettings();
+            modal.remove();
+            this.startFlurryAnimation();
         };
     }
 
@@ -752,58 +814,62 @@ class proc extends ThirdPartyAppProcess {
             return;
         }
 
+        // Use devicePixelRatio for crispness
         var resizeCanvas = () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = window.innerWidth * dpr;
+            canvas.height = window.innerHeight * dpr;
+            canvas.style.width = window.innerWidth + 'px';
+            canvas.style.height = window.innerHeight + 'px';
         };
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
         var ctx = canvas.getContext('2d');
-        var NUM_CURVES = 5;
-        var POINTS_PER_CURVE = 6;
-        var curves = [];
-        var colors = [
-            '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#A66CFF', '#FF6EC7', '#00C2CB', '#FFB26B'
-        ];
-
+        var settings = this._settings || { numCurves: 12, pointsPerCurve: 10, speed: 1.2, colorScheme: 'default' };
+        var NUM_CURVES = settings.numCurves;
+        var POINTS_PER_CURVE = settings.pointsPerCurve;
+        var SPEED = settings.speed;
+        var colorSchemes = {
+            default: ['#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#A66CFF', '#FF6EC7', '#00C2CB', '#FFB26B'],
+            cool: ['#4D96FF', '#A66CFF', '#00C2CB', '#6BCB77'],
+            warm: ['#FF6B6B', '#FFD93D', '#FFB26B', '#FF6EC7'],
+        };
+        var colors = colorSchemes[settings.colorScheme] || colorSchemes.default;
         function random(min, max) {
             return Math.random() * (max - min) + min;
         }
-
         function createCurve() {
             var points = [];
             for (var i = 0; i < POINTS_PER_CURVE; i++) {
                 points.push({
                     x: random(0, canvas.width),
                     y: random(0, canvas.height),
-                    vx: random(-1, 1),
-                    vy: random(-1, 1)
+                    vx: random(-SPEED, SPEED),
+                    vy: random(-SPEED, SPEED)
                 });
             }
             return {
                 points,
                 color: colors[Math.floor(random(0, colors.length))],
                 alpha: random(0.3, 0.7),
-                width: random(1.5, 3.5)
+                width: random(1.5, 3.5) * (canvas.width / window.innerWidth)
             };
         }
-
+        var curves = [];
         for (var i = 0; i < NUM_CURVES; i++) {
             curves.push(createCurve());
         }
-
         var animate = () => {
-            // Only run if not disposed and effect is NOT active
             if (this._disposed || this._m === 1) {
-                // If effect is active, clear the canvas to prevent flurry drawing over it
                 if (this._m === 1 && canvas) {
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                 }
                 return;
             }
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+            ctx.save();
+            ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
             for (var i = 0; i < curves.length; i++) {
                 var curve = curves[i];
                 ctx.save();
@@ -811,21 +877,20 @@ class proc extends ThirdPartyAppProcess {
                 ctx.strokeStyle = curve.color;
                 ctx.lineWidth = curve.width;
                 ctx.beginPath();
-                ctx.moveTo(curve.points[0].x, curve.points[0].y);
+                ctx.moveTo(curve.points[0].x / (window.devicePixelRatio || 1), curve.points[0].y / (window.devicePixelRatio || 1));
                 for (var j = 1; j < curve.points.length - 2; j++) {
                     var xc = (curve.points[j].x + curve.points[j + 1].x) / 2;
                     var yc = (curve.points[j].y + curve.points[j + 1].y) / 2;
-                    ctx.quadraticCurveTo(curve.points[j].x, curve.points[j].y, xc, yc);
+                    ctx.quadraticCurveTo(curve.points[j].x / (window.devicePixelRatio || 1), curve.points[j].y / (window.devicePixelRatio || 1), xc / (window.devicePixelRatio || 1), yc / (window.devicePixelRatio || 1));
                 }
                 ctx.quadraticCurveTo(
-                    curve.points[curve.points.length - 2].x,
-                    curve.points[curve.points.length - 2].y,
-                    curve.points[curve.points.length - 1].x,
-                    curve.points[curve.points.length - 1].y
+                    curve.points[curve.points.length - 2].x / (window.devicePixelRatio || 1),
+                    curve.points[curve.points.length - 2].y / (window.devicePixelRatio || 1),
+                    curve.points[curve.points.length - 1].x / (window.devicePixelRatio || 1),
+                    curve.points[curve.points.length - 1].y / (window.devicePixelRatio || 1)
                 );
                 ctx.stroke();
                 ctx.restore();
-
                 for (var k = 0; k < curve.points.length; k++) {
                     var pt = curve.points[k];
                     pt.x += pt.vx;
@@ -834,10 +899,9 @@ class proc extends ThirdPartyAppProcess {
                     if (pt.y < 0 || pt.y > canvas.height) pt.vy *= -1;
                 }
             }
-
+            ctx.restore();
             requestAnimationFrame(animate);
         };
-
         animate();
     }
 
