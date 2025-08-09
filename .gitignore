@@ -3,3 +3,5 @@ NikN_Screensaver.arc
 .git
 .vscode/
 /src/lockscreen.pwd.hash
+doc/
+.github/instructions/main.instructions.md

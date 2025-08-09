@@ -9,9 +9,10 @@ var htmlContent = `
 // Hardcoded obfuscated parts for secret easter egg codes.
 // These parts are reassembled from character codes.
 var HARDCODED_SECRET_CODE_PARTS = [
-    [[99, 101, 114, 116], [105, 102, 105], [99, 97, 116, 101, 115]], 
-    [[109, 97, 116], [114], [105, 120]],                              
-    [[112, 108, 101, 97, 115, 101, 114, 101, 115, 101, 116, 109, 121, 112, 97, 115, 115, 119, 111, 114, 100, 98, 101, 99, 97, 117, 115, 101, 105, 102, 111, 114, 103, 111, 114]]
+    [[99, 101, 114, 116], [105, 102, 105], [99, 97, 116, 101, 115]], // certificates
+    [[109, 97, 116], [114], [105, 120]], // matrix
+    [[112, 108, 101, 97, 115, 101, 114, 101, 115, 101, 116, 109, 121, 112, 97, 115, 115, 119, 111, 114, 100, 98, 101, 99, 97, 117, 115, 101, 105, 102, 111, 114, 103, 111, 114]], // pleasereetmypasswordbecauseiforgor
+    [[103, 111, 111, 115, 101]] // goose
 ];
 
 // Special marker to indicate that the password should be reset on next startup
@@ -78,57 +79,17 @@ class proc extends ThirdPartyAppProcess {
         body.appendChild(errorDiv);
         setTimeout(() => { if (errorDiv.parentNode) errorDiv.remove(); }, 3000);
     }
-    // Restores animation and overlay listeners after closing overlays
-    _restoreAnimationAndListeners() {
-        // Restart the animation if needed
-        if (typeof this.startFlurryAnimation === 'function') {
-            this.startFlurryAnimation();
-        }
-        // Re-add the space key listener if not present
-        if (!this._showOverlayListener) {
-            this._showOverlayListener = (e) => {
-                if (this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
-                    this.showPasswordOverlay();
-                }
-            };
-            window.addEventListener('keydown', this._showOverlayListener);
-        }
-    }
-    // Returns the main UI body element for overlays/modals
-    _getUiBody() {
-        // Adjust selector if ArcOS requires a specific root element
-        return document.body;
-    }
-    constructor(handler, pid, parentPid, app, workingDirectory, ...args) {
-        super(handler, pid, parentPid, app, workingDirectory);
-        // Obfuscated boolean flags: 0 for false, 1 for true
-        this._u = 0; // Flag to indicate if the password overlay is active 
-        this._l = 0;  // Flag to indicate if the app is unlocked 
-        this.profilePicture = null; // User's profile picture URL
-        this.displayName = null;    // User's display name
-        this._showOverlayListener = null; // Listener for space key
 
-        this._localPasswordHash = null; // Stores SHA256 hash if persistent storage is used for main password
-        this._localPassword = null;     // Stores plaintext password in-memory if persistent storage fails for main password
 
-        this._s = 0; // Flag for secret code input overlay state 
-        this._computedSecretCodeHashes = []; // Stores dynamically computed hashes of codes
-        this._m = 0; // New flag to control effect animation 
-        this._effectTimeout = null; // Timeout ID for effect auto-dismiss 
-        this._effectDismissListener = null; // Listener for dismissing effect 
 
-        // Define file path for the main lock screen password within the app's working directory
-        this._lockScreenPasswordFilePath = `U:/Config/NikN_Screensaver/lockscreen.pwd.hash`
-        if (typeof this.Log === 'function') this.Log("Lock screen password file path set to: " + this._lockScreenPasswordFilePath, LogLevel.info);
-
-        this._h = 0; // Determined during constructor/render 
-
+    constructor(...args) {
+        super(...args);
+        this._h = 0; // Determined during constructor/render
         // --- Initial Feature Detection for Persistent Hashing ---
         try {
             if (typeof util !== 'undefined' && typeof util.sha256 === 'function' &&
                 typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' && typeof convert.textToBlob === 'function' &&
                 this.fs && typeof this.fs.readFile === 'function' && typeof this.fs.writeFile === 'function') {
-
                 this._h = 1;
                 if (typeof this.Log === 'function') this.Log("Persistent hashing and file system operations are initially detected as available.", LogLevel.info);
             } else {
@@ -141,34 +102,7 @@ class proc extends ThirdPartyAppProcess {
             if (typeof this.Log === 'function') this.Log("Error during initial utility check for persistent hashing: " + e.message, LogLevel.error);
             this._h = 0;
         }
-
-        // --- Dynamically compute secret code hashes on startup ---
-        this._computeSecretCodeHashes();
-
-        // --- Registering Alt+I accelerator using acceleratorStore ---
-        if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
-            this.acceleratorStore.push({
-                alt: true,
-                key: "i",
-                action: (proc, event) => {
-                    if (this._u === 0 && this._l === 0) {
-                        this.showSecretCodeInputOverlay();
-                    }
-                },
-                global: true
-            });
-            if (typeof this.Log === 'function') this.Log("Registered Alt+I keyboard shortcut via acceleratorStore.", LogLevel.info);
-        } else {
-            if (typeof this.Log === 'function') this.Log("acceleratorStore not available or not an array. Alt+I shortcut will not be registered.", LogLevel.warning);
-            this._secretCodeKeyListener = (e) => {
-                if (this._u === 0 && this._l === 0 && e.altKey && e.key === 'i') {
-                    e.preventDefault();
-                    this.showSecretCodeInputOverlay();
-                }
-            };
-            window.addEventListener('keydown', this._secretCodeKeyListener);
-            if (typeof this.Log === 'function') this.Log("Falling back to window.addEventListener for Alt+I due to missing acceleratorStore.", LogLevel.warning);
-        }
+        // Do not register keyboard listeners here; do it after UI is rendered.
     }
 
     /**
@@ -204,6 +138,25 @@ class proc extends ThirdPartyAppProcess {
      * It sets up the lock screen, checks for password existence, and starts the animation.
      */
     async render() {
+        // Register keyboard shortcuts after UI is rendered, only once
+        if (!this._keyboardShortcutsRegistered) {
+            this._secretCodeKeyListener = (e) => {
+                const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+                const isEditable = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
+                if (!isEditable && this._u === 0 && this._l === 0 && e.altKey && (e.key === 'i' || e.code === 'KeyI')) {
+                    e.preventDefault();
+                    this.showSecretCodeInputOverlay();
+                }
+            };
+            this._showOverlayListener = (e) => {
+                const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+                const isEditable = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
+                if (!isEditable && this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
+                    this.showPasswordOverlay();
+                }
+            };
+            this._keyboardShortcutsRegistered = true;
+        }
     await this._loadSettings();
         var body = this.getBody();
         if (!body) return;
@@ -261,23 +214,14 @@ class proc extends ThirdPartyAppProcess {
             this.showPasswordOverlay();
         }
 
-        // Listen for space key to show password overlay
-        this._showOverlayListener = (e) => {
-            if (this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
-                this.showPasswordOverlay();
-            }
-        };
-        window.addEventListener('keydown', this._showOverlayListener);
+    // (handled above with accessibility/focus check)
 
         // Start the Flurry-style animation
         this.startFlurryAnimation();
+        // Start the Flurry-style animation
+        this.startFlurryAnimation();
     }
-
-    /**
-     * Handles the application closing event.
-     * Prevents closing unless the app is unlocked.
-     * @returns {boolean} True if the app can close, false otherwise.
-     */
+    
     async onClose() {
         if (this._l === 1) {
             return true;
@@ -450,7 +394,7 @@ class proc extends ThirdPartyAppProcess {
             errorDiv.style.display = 'none';
 
             if (code.length === 0) {
-                errorDiv.textContent = 'Input a code.'; 
+                errorDiv.textContent = 'Input a code.';
                 errorDiv.style.display = 'block';
                 return;
             }
@@ -464,58 +408,67 @@ class proc extends ThirdPartyAppProcess {
 
                         // --- Code Effects ---
                         // Compare entered hash directly with computed hashes
-                        if (enteredCodeHash === this._computedSecretCodeHashes[0]) { 
+                        if (enteredCodeHash === this._computedSecretCodeHashes[0]) {
                             if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
                             inputOverlay.remove(); // Remove input overlay
                             this._s = 0;
                             // Updated image paths to include 'egg' subdirectory
                             this.showImageDisplayOverlay('./egg/cert1.png', './egg/cert2.png');
                             return; // Exit function after displaying images
-                        } else if (enteredCodeHash === this._computedSecretCodeHashes[1]) { 
+                        } else if (enteredCodeHash === this._computedSecretCodeHashes[1]) {
                             if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
                             inputOverlay.remove(); // Remove input overlay
                             this._s = 0;
                             this._startEffectM(); // Call obfuscated function
                             return; // Exit function after starting effect
-                        } else if (enteredCodeHash === this._computedSecretCodeHashes[2]) { 
-                            if (typeof this.Log === 'function') this.Log("Secret code for password reset entered. Showing confirmation prompt.", LogLevel.info)
-                            inputOverlay.remove(); // Remove input overlay
-                            this._s = 0;
-                            var confirmed = await this.showConfirmationPrompt("Are you sure? This will delete your lock screen password and log you out from your ArcOS session.");
-                            if (confirmed) {
-                                if (typeof this.Log === 'function') this.Log("Password reset confirmed. Attempting to write reset marker and log out from ArcOS.", LogLevel.info);
-                                try {
-                                    if (this.fs && typeof this.fs.writeFile === 'function' && this._lockScreenPasswordFilePath) {
-                                        var blob = convert.textToBlob(RESET_PASSWORD_MARKER, 'text/plain');
-                                        await this.fs.writeFile(this._lockScreenPasswordFilePath, blob);
-                                        this._localPasswordHash = null; // Clear in-memory hash
-                                        this._localPassword = null; // Clear in-memory plaintext
-                                        this._h = 0; // Reset persistent hashing flag
-                                        if (typeof this.Log === 'function') this.Log("Lock screen password reset marker written successfully.", LogLevel.info);
-                                    } else {
-                                        if (typeof this.Log === 'function') this.Log("File system write function not available or path invalid for reset.", LogLevel.error);
-                                    }
+                        } else if (enteredCodeHash === this._computedSecretCodeHashes[2]) {
+                            // Secure context check for password reset
+                            if (window.isSecureContext !== false) {
+                                if (typeof this.Log === 'function') this.Log("Secret code for password reset entered. Showing confirmation prompt.", LogLevel.info)
+                                inputOverlay.remove(); // Remove input overlay
+                                this._s = 0;
+                                var confirmed = await this.showConfirmationPrompt("Are you sure? This will delete your lock screen password and log you out from your ArcOS session?");
+                                if (confirmed) {
+                                    if (typeof this.Log === 'function') this.Log("Password reset confirmed. Attempting to write reset marker and log out from ArcOS.", LogLevel.info);
+                                    try {
+                                        if (this.fs && typeof this.fs.writeFile === 'function' && this._lockScreenPasswordFilePath) {
+                                            var blob = convert.textToBlob(RESET_PASSWORD_MARKER, 'text/plain');
+                                            await this.fs.writeFile(this._lockScreenPasswordFilePath, blob);
+                                            this._localPasswordHash = null; // Clear in-memory hash
+                                            this._localPassword = null; // Clear in-memory plaintext
+                                            this._h = 0; // Reset persistent hashing flag
+                                            if (typeof this.Log === 'function') this.Log("Lock screen password reset marker written successfully.", LogLevel.info);
+                                        } else {
+                                            if (typeof this.Log === 'function') this.Log("File system write function not available or path invalid for reset.", LogLevel.error);
+                                        }
 
-                                    if (this.userDaemon && typeof this.userDaemon.logoff === 'function') {
-                                        if (typeof this.Log === 'function') this.Log("Logging user out of ArcOS...", LogLevel.info);
-                                        await this.userDaemon.logoff();
-                                    } else {
-                                        if (typeof this.Log === 'function') this.Log("ArcOS logoff functionality not available via userDaemon.", LogLevel.error);
+                                        if (this.userDaemon && typeof this.userDaemon.logoff === 'function') {
+                                            if (typeof this.Log === 'function') this.Log("Logging user out of ArcOS...", LogLevel.info);
+                                            await this.userDaemon.logoff();
+                                        } else {
+                                            if (typeof this.Log === 'function') this.Log("ArcOS logoff functionality not available via userDaemon.", LogLevel.error);
+                                        }
+                                    } catch (e) {
+                                        if (typeof this.Log === 'function') this.Log("Error during password reset/ArcOS Logoff: " + e.message, LogLevel.error);
                                     }
-                                } catch (e) {
-                                    if (typeof this.Log === 'function') this.Log("Error during password reset/ArcOS Logoff: " + e.message, LogLevel.error);
+                                } else {
+                                    if (typeof this.Log === 'function') this.Log("Password reset cancelled.", LogLevel.info);
                                 }
                             } else {
-                                if (typeof this.Log === 'function') this.Log("Password reset cancelled.", LogLevel.info);
+                                if (typeof this.Log === 'function') this.Log("Password reset secret code attempted in insecure context. Action denied.", LogLevel.error);
+                                errorDiv.textContent = 'Password reset is only allowed in a secure context (https or localhost).';
+                                errorDiv.style.display = 'block';
                             }
                             return; // Exit function after handling prompt
+                        } else if (enteredCodeHash === this._computedSecretCodeHashes[3]) {
+                            // Goose code: morph animation and show goose image
+                            if (typeof this.Log === 'function') this.Log("Goose code entered! Morphing animation and showing goose.", LogLevel.info);
+                            inputOverlay.remove();
+                            this._s = 0;
+                            this._showGooseEasterEgg();
+                            return;
                         }
                     }
-                } else {
-                    if (typeof this.Log === 'function') this.Log("util.sha256 not available. Secret code validation is not secure and will not work.", LogLevel.warning);
-                    errorDiv.textContent = 'Secret code validation is unavailable.';
-                    errorDiv.style.display = 'block';
-                    return;
                 }
             } catch (e) {
                 if (typeof this.Log === 'function') this.Log("Error hashing secret code for validation: " + e.message, LogLevel.error);
@@ -523,7 +476,7 @@ class proc extends ThirdPartyAppProcess {
                 errorDiv.style.display = 'block';
                 return;
             }
-
+            // After try/catch
             if (unlockedBySecretCode === 1) { // This path is now only for generic unlock if not specific easter egg
                 this._l = 1;
                 inputOverlay.remove();
@@ -540,16 +493,66 @@ class proc extends ThirdPartyAppProcess {
                 errorDiv.style.display = 'block';
             }
         };
-
-        cancelBtn.onclick = () => {
-            inputOverlay.remove();
-            this._s = 0;
-            // No action to go back to main password overlay. Just close.
-        };
-
-        secretCodeInput.onkeydown = (e) => { if (e.key === 'Enter') unlockSecretCodeBtn.click(); };
+    cancelBtn.onclick = () => {
+        inputOverlay.remove();
+        this._s = 0;
+        // No action to go back to main password overlay. Just close.
+    };
+    secretCodeInput.onkeydown = (e) => { if (e.key === 'Enter') unlockSecretCodeBtn.click(); };
     }
 
+    // Goose easter egg: morph animation and show goose image
+    _showGooseEasterEgg() {
+        // Stop current animation
+        this._m = 1;
+        var canvas = this.getBody().querySelector('#flurry-canvas');
+        if (!canvas) return;
+        var ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Draw a simple goose shape (ellipse body, circle head, beak, etc.)
+        ctx.save();
+        ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+        // Body
+        ctx.beginPath();
+        ctx.ellipse(canvas.width/2, canvas.height/2+40, 80, 120, 0, 0, 2*Math.PI);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        // Head
+        ctx.beginPath();
+        ctx.arc(canvas.width/2+60, canvas.height/2-40, 32, 0, 2*Math.PI);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        // Beak
+        ctx.beginPath();
+        ctx.moveTo(canvas.width/2+92, canvas.height/2-40);
+        ctx.lineTo(canvas.width/2+120, canvas.height/2-32);
+        ctx.lineTo(canvas.width/2+92, canvas.height/2-24);
+        ctx.closePath();
+        ctx.fillStyle = '#ff9900';
+        ctx.fill();
+        // Eye
+        ctx.beginPath();
+        ctx.arc(canvas.width/2+75, canvas.height/2-50, 4, 0, 2*Math.PI);
+        ctx.fillStyle = '#222';
+        ctx.fill();
+        ctx.restore();
+        // Show goose image overlay
+        this._showGooseImageOverlay();
+    }
+
+    // Overlay for goose image
+    _showGooseImageOverlay() {
+        var body = this.getBody();
+        if (!body) return;
+        var gooseOverlay = document.createElement('div');
+        gooseOverlay.id = 'goose-image-overlay';
+        gooseOverlay.style = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.0); z-index: 12000; display: flex; align-items: center; justify-content: center; pointer-events: none;`;
+        gooseOverlay.innerHTML = `<img src='./egg/goose.png' alt='Goose' style='width: 256px; height: auto; filter: drop-shadow(0 8px 32px #0008); pointer-events: none;'>`;
+        body.appendChild(gooseOverlay);
+        setTimeout(() => { if (gooseOverlay.parentNode) gooseOverlay.remove(); this._m = 0; this.startFlurryAnimation(); }, 6000);
+    }
 
     /**
      * Displays the password entry overlay for unlocking the screen.
@@ -584,7 +587,7 @@ class proc extends ThirdPartyAppProcess {
                     <button id="cancel-btn"
                             style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer;">Cancel</button>
                     <button id="settings-btn"
-                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #10b981; color: #ffffff; font-weight: 600; cursor: pointer;">Settings</button>
+                            style="padding: 12px 24px; border-radius: 8px; border: none; background-color: #10b981; color: #ffffff; font-weight: 600; cursor: pointer;">Settings</button>
                 </div>
                 <div id="unlock-error" style="color: #f87171; margin-top: 8px; font-size: 14px; display: none;"></div>
             </div>
