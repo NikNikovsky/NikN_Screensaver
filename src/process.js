@@ -18,17 +18,12 @@ var HARDCODED_SECRET_CODE_PARTS = [
 // Special marker to indicate that the password should be reset on next startup
 var RESET_PASSWORD_MARKER = "__ARC_OS_LOCKSCREEN_RESET__";
 
-// ArcOS LogLevel enum values (from logging.pdf)
-var LogLevel = {
-    info: 0,
-    warning: 1,
-    error: 2,
-    critical: 3
-};
-
 // This class extends ThirdPartyAppProcess, which is assumed to provide
 // methods like getBody(), userPreferences(), userDaemon, handler, closeWindow.
 class proc extends ThirdPartyAppProcess {
+    _getUiBody() {
+    return this.getBody();
+}
     // Loads settings from config file or defaults
     async _loadSettings() {
         const defaultSettings = {
@@ -78,13 +73,31 @@ class proc extends ThirdPartyAppProcess {
         errorDiv.textContent = message;
         body.appendChild(errorDiv);
         setTimeout(() => { if (errorDiv.parentNode) errorDiv.remove(); }, 3000);
+        return this.getBody();
     }
 
 
 
 constructor(...args) {
     super(...args);
-    // Async initialization must be done outside constructor
+    this._canUsePersistentHashing = false; // Determined during constructor/render
+
+    // --- Initial Feature Detection for Persistent Hashing ---
+    try {
+        if (typeof util !== 'undefined' && typeof util.sha256 === 'function' &&
+            typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' && typeof convert.textToBlob === 'function' &&
+            this.fs && typeof this.fs.readFile === 'function' && typeof this.fs.writeFile === 'function') {
+
+            this._canUsePersistentHashing = true;
+            if (typeof this.Log === 'function') this.Log("Persistent hashing and file system operations are initially detected as available.", LogLevel.info);
+        } else {
+            if (typeof this.Log === 'function') this.Log("Initial check: Some core utilities for persistent hashing are not fully available. Will fall back to in-memory password storage.", LogLevel.warning);
+        }
+    } catch (e) {
+        if (typeof this.Log === 'function') this.Log("Error during initial utility check for persistent hashing: " + e.message, LogLevel.error);
+        this._canUsePersistentHashing = false; // Ensure it's false on any error
+    }
+}
 }
 
 /**
@@ -110,9 +123,7 @@ async initialize() {
                 this._localPasswordHash = null;
             }
         } catch (e) {
-            if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
-            this._localPasswordHash = null;
-            if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
+            if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file: " + e.message, LogLevel.warning);
             this._localPasswordHash = null;
         }
     }
@@ -153,67 +164,52 @@ async initialize() {
      */
     async render() {
     await this._loadSettings();
-        var body = this.getBody();
-        if (!body) return;
-        body.innerHTML = htmlContent;
+    const body = this.getBody();
+    if (!body) return;
+    body.innerHTML = htmlContent;
 
-        // Try to get user info
-        try {
-            var prefs = this.userPreferences && typeof this.userPreferences === 'function' ? this.userPreferences() : null;
-            if (prefs && prefs.account) {
-                this.displayName = prefs.account.displayName || 'User';
-                this.profilePicture = prefs.account.profilePicture || null;
-            } else {
-                this.displayName = 'User';
-                this.profilePicture = null;
-            }
-        } catch (e) {
-            if (typeof this.Log === 'function') this.Log("Error fetching user preferences: " + e.message, LogLevel.error);
+    // Try to get user info
+    try {
+        const prefs = this.userPreferences && typeof this.userPreferences === 'function' ? this.userPreferences() : null;
+        if (prefs && prefs.account) {
+            this.displayName = prefs.account.displayName || 'User';
+            this.profilePicture = prefs.account.profilePicture || null;
+        } else {
             this.displayName = 'User';
             this.profilePicture = null;
         }
-
-        // Attempt to load the hashed lock screen password from file
-        if (this._h === 1 && this._lockScreenPasswordFilePath) {
-            try {
-                var fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
-                if (fileContent) {
-                    var loadedContent = convert.arrayToText(new Uint8Array(fileContent));
-                    if (loadedContent === RESET_PASSWORD_MARKER) {
-                        this._localPasswordHash = null; // No password
-                        if (typeof this.Log === 'function') this.Log("Lock screen password reset marker found. Prompting for new password.", LogLevel.info);
-                    } else {
-                        this._localPasswordHash = loadedContent;
-                        if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
-                    }
-                } else {
-                    this._localPasswordHash = null; // No file / empty file
-                }
-            } catch (e) {
-                if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
-                this._localPasswordHash = null;
-            }
-        }
-
-        // --- Dynamically compute secret code hashes on render, after util is confirmed ---
-        await this._computeSecretCodeHashes();
-
-        // Determine if a password already exists (either hashed or in-memory)
-        var passwordExists = this._h === 1 ? !!this._localPasswordHash : !!this._localPassword;
-
-        if (!passwordExists) {
-            // If no password is set, show the setup dialog
-            this.showSetPasswordDialog();
-        } else {
-            // Otherwise, show the normal password overlay
-            this.showPasswordOverlay();
-        }
-
-    // (handled above with accessibility/focus check)
-
-        // Start the Flurry-style animation
-        this.startFlurryAnimation();
+    } catch (e) {
+        if (typeof this.Log === 'function') this.Log("Error fetching user preferences: " + e.message, LogLevel.error);
+        this.displayName = 'User';
+        this.profilePicture = null;
     }
+
+    // Attempt to load the hashed lock screen password from file
+    if (this._canUsePersistentHashing && this._lockScreenPasswordFilePath) {
+        try {
+            const fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
+            if (fileContent) {
+                this._localPasswordHash = convert.arrayToText(new Uint8Array(fileContent));
+                if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
+            }
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file: " + e.message, LogLevel.warning);
+            this._localPasswordHash = null;
+            this._canUsePersistentHashing = false; // Disable persistent hashing on read error
+        }
+    }
+
+    // Determine if a password already exists (either hashed or in-memory)
+    const passwordExists = this._canUsePersistentHashing ? !!this._localPasswordHash : !!this._localPassword;
+
+    if (!passwordExists) {
+        this.showSetPasswordDialog();
+    } else {
+        this.showPasswordOverlay();
+    }
+
+    this.startFlurryAnimation();
+}
     
     async onClose() {
         if (this._l === 1) {
