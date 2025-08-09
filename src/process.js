@@ -82,28 +82,39 @@ class proc extends ThirdPartyAppProcess {
 
 
 
-    constructor(...args) {
-        super(...args);
-        this._h = 0; // Determined during constructor/render
-        // --- Initial Feature Detection for Persistent Hashing ---
+constructor(...args) {
+    super(...args);
+    // Async initialization must be done outside constructor
+}
+
+/**
+ * Call this method after instantiating proc to perform async initialization.
+ */
+async initialize() {
+    if (this._h === 1 && this.fs && typeof this.fs.readFile === 'function') {
         try {
-            if (typeof util !== 'undefined' && typeof util.sha256 === 'function' &&
-                typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' && typeof convert.textToBlob === 'function' &&
-                this.fs && typeof this.fs.readFile === 'function' && typeof this.fs.writeFile === 'function') {
-                this._h = 1;
-                if (typeof this.Log === 'function') this.Log("Persistent hashing and file system operations are initially detected as available.", LogLevel.info);
+            const configPath = 'U:/Config/NikN_Screensaver/password.hash';
+            const file = await this.fs.readFile(configPath);
+            if (file) {
+                const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function'
+                    ? convert.arrayToText(new Uint8Array(file))
+                    : new TextDecoder().decode(new Uint8Array(file));
+                if (text === RESET_PASSWORD_MARKER) {
+                    this._localPasswordHash = null;
+                    if (typeof this.Log === 'function') this.Log("Lock screen password reset marker found. Prompting for new password.", LogLevel.info);
+                } else {
+                    this._localPasswordHash = text;
+                    if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
+                }
             } else {
-                if (typeof this.Log === 'function') this.Log("Initial check: Some core utilities for persistent hashing are not fully available. Will fall back to in-memory password storage.", LogLevel.warning);
-                if (typeof util === 'undefined' || typeof util.sha256 !== 'function') if (typeof this.Log === 'function') this.Log("  - util.sha256 missing or not a function.", LogLevel.warning);
-                if (typeof convert === 'undefined' || typeof convert.arrayToText !== 'function' || typeof convert.textToBlob !== 'function') if (typeof this.Log === 'function') this.Log("  - convert.arrayToText or convert.textToBlob missing or not a function.", LogLevel.warning);
-                if (!this.fs || typeof this.fs.readFile !== 'function' || typeof this.fs.writeFile !== 'function') if (typeof this.Log === 'function') this.Log("  - this.fs or its readFile/writeFile methods missing or not functions.", LogLevel.warning);
+                this._localPasswordHash = null;
             }
         } catch (e) {
-            if (typeof this.Log === 'function') this.Log("Error during initial utility check for persistent hashing: " + e.message, LogLevel.error);
-            this._h = 0;
+            if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
+            this._localPasswordHash = null;
         }
-        // Do not register keyboard listeners here; do it after UI is rendered.
     }
+}
 
     /**
      * Dynamically computes the SHA256 hashes of the hardcoded secret codes.
@@ -138,25 +149,6 @@ class proc extends ThirdPartyAppProcess {
      * It sets up the lock screen, checks for password existence, and starts the animation.
      */
     async render() {
-        // Register keyboard shortcuts after UI is rendered, only once
-        if (!this._keyboardShortcutsRegistered) {
-            this._secretCodeKeyListener = (e) => {
-                const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-                const isEditable = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
-                if (!isEditable && this._u === 0 && this._l === 0 && e.altKey && (e.key === 'i' || e.code === 'KeyI')) {
-                    e.preventDefault();
-                    this.showSecretCodeInputOverlay();
-                }
-            };
-            this._showOverlayListener = (e) => {
-                const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-                const isEditable = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
-                if (!isEditable && this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
-                    this.showPasswordOverlay();
-                }
-            };
-            this._keyboardShortcutsRegistered = true;
-        }
     await this._loadSettings();
         var body = this.getBody();
         if (!body) return;
