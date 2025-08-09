@@ -112,9 +112,13 @@ async initialize() {
         } catch (e) {
             if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
             this._localPasswordHash = null;
+            if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
+            this._localPasswordHash = null;
         }
     }
 }
+    
+
 
     /**
      * Dynamically computes the SHA256 hashes of the hardcoded secret codes.
