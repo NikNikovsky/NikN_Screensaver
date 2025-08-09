@@ -82,28 +82,39 @@ class proc extends ThirdPartyAppProcess {
 
 
 
-    constructor(...args) {
-        super(...args);
-        this._h = 0; // Determined during constructor/render
-        // --- Initial Feature Detection for Persistent Hashing ---
+constructor(...args) {
+    super(...args);
+    // Async initialization must be done outside constructor
+}
+
+/**
+ * Call this method after instantiating proc to perform async initialization.
+ */
+async initialize() {
+    if (this._h === 1 && this.fs && typeof this.fs.readFile === 'function') {
         try {
-            if (typeof util !== 'undefined' && typeof util.sha256 === 'function' &&
-                typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' && typeof convert.textToBlob === 'function' &&
-                this.fs && typeof this.fs.readFile === 'function' && typeof this.fs.writeFile === 'function') {
-                this._h = 1;
-                if (typeof this.Log === 'function') this.Log("Persistent hashing and file system operations are initially detected as available.", LogLevel.info);
+            const configPath = 'U:/Config/NikN_Screensaver/lockscreen.pwd.hash';
+            const file = await this.fs.readFile(configPath);
+            if (file) {
+                const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function'
+                    ? convert.arrayToText(new Uint8Array(file))
+                    : new TextDecoder().decode(new Uint8Array(file));
+                if (text === RESET_PASSWORD_MARKER) {
+                    this._localPasswordHash = null;
+                    if (typeof this.Log === 'function') this.Log("Lock screen password reset marker found. Prompting for new password.", LogLevel.info);
+                } else {
+                    this._localPasswordHash = text;
+                    if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
+                }
             } else {
-                if (typeof this.Log === 'function') this.Log("Initial check: Some core utilities for persistent hashing are not fully available. Will fall back to in-memory password storage.", LogLevel.warning);
-                if (typeof util === 'undefined' || typeof util.sha256 !== 'function') if (typeof this.Log === 'function') this.Log("  - util.sha256 missing or not a function.", LogLevel.warning);
-                if (typeof convert === 'undefined' || typeof convert.arrayToText !== 'function' || typeof convert.textToBlob !== 'function') if (typeof this.Log === 'function') this.Log("  - convert.arrayToText or convert.textToBlob missing or not a function.", LogLevel.warning);
-                if (!this.fs || typeof this.fs.readFile !== 'function' || typeof this.fs.writeFile !== 'function') if (typeof this.Log === 'function') this.Log("  - this.fs or its readFile/writeFile methods missing or not functions.", LogLevel.warning);
+                this._localPasswordHash = null;
             }
         } catch (e) {
-            if (typeof this.Log === 'function') this.Log("Error during initial utility check for persistent hashing: " + e.message, LogLevel.error);
-            this._h = 0;
+            if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
+            this._localPasswordHash = null;
         }
-        // Do not register keyboard listeners here; do it after UI is rendered.
     }
+}
 
     /**
      * Dynamically computes the SHA256 hashes of the hardcoded secret codes.
@@ -129,40 +140,20 @@ class proc extends ThirdPartyAppProcess {
             if (typeof this.Log === 'function') this.Log("Dynamically computed secret code hashes.", LogLevel.info);
         } else {
             if (typeof this.Log === 'function') this.Log("util.sha256 not available. Secret codes will not be functional.", LogLevel.warning);
-            this._computedSecretCodeHashes = []; // Ensure it's empty if hashing is not available
+            this._computedSecretCodeHashes = []; 
         }
     }
 
     /**
-     * Renders the initial application UI.
-     * It sets up the lock screen, checks for password existence, and starts the animation.
+     * Initial application UI.
      */
     async render() {
-        // Register keyboard shortcuts after UI is rendered, only once
-        if (!this._keyboardShortcutsRegistered) {
-            this._secretCodeKeyListener = (e) => {
-                const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-                const isEditable = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
-                if (!isEditable && this._u === 0 && this._l === 0 && e.altKey && (e.key === 'i' || e.code === 'KeyI')) {
-                    e.preventDefault();
-                    this.showSecretCodeInputOverlay();
-                }
-            };
-            this._showOverlayListener = (e) => {
-                const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-                const isEditable = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
-                if (!isEditable && this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
-                    this.showPasswordOverlay();
-                }
-            };
-            this._keyboardShortcutsRegistered = true;
-        }
     await this._loadSettings();
         var body = this.getBody();
         if (!body) return;
         body.innerHTML = htmlContent;
 
-        // Try to get user info (profile picture and display name)
+        // Try to get user info
         try {
             var prefs = this.userPreferences && typeof this.userPreferences === 'function' ? this.userPreferences() : null;
             if (prefs && prefs.account) {
@@ -185,14 +176,14 @@ class proc extends ThirdPartyAppProcess {
                 if (fileContent) {
                     var loadedContent = convert.arrayToText(new Uint8Array(fileContent));
                     if (loadedContent === RESET_PASSWORD_MARKER) {
-                        this._localPasswordHash = null; // Treat as no password set
+                        this._localPasswordHash = null; // No password
                         if (typeof this.Log === 'function') this.Log("Lock screen password reset marker found. Prompting for new password.", LogLevel.info);
                     } else {
                         this._localPasswordHash = loadedContent;
                         if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
                     }
                 } else {
-                    this._localPasswordHash = null; // File doesn't exist or is empty
+                    this._localPasswordHash = null; // No file / empty file
                 }
             } catch (e) {
                 if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
@@ -207,7 +198,7 @@ class proc extends ThirdPartyAppProcess {
         var passwordExists = this._h === 1 ? !!this._localPasswordHash : !!this._localPassword;
 
         if (!passwordExists) {
-            // If no lock screen password is set, show the setup dialog
+            // If no password is set, show the setup dialog
             this.showSetPasswordDialog();
         } else {
             // Otherwise, show the normal password overlay
@@ -216,8 +207,6 @@ class proc extends ThirdPartyAppProcess {
 
     // (handled above with accessibility/focus check)
 
-        // Start the Flurry-style animation
-        this.startFlurryAnimation();
         // Start the Flurry-style animation
         this.startFlurryAnimation();
     }
@@ -234,7 +223,7 @@ class proc extends ThirdPartyAppProcess {
     }
 
     /**
-     * Displays a dialog for the user to set their lock screen password for the first time.
+     * Displays a dialog for the user to set their password for the first time.
      */
     showSetPasswordDialog() {
         var body = this.getBody();
@@ -336,7 +325,6 @@ class proc extends ThirdPartyAppProcess {
 
     /**
      * Displays an overlay for the user to input a secret code to unlock.
-     * Triggered by Alt+I. This validates against hardcoded secret codes.
      */
     showSecretCodeInputOverlay() {
         if (this._s === 1) return;
@@ -410,22 +398,23 @@ class proc extends ThirdPartyAppProcess {
                         // Compare entered hash directly with computed hashes
                         if (enteredCodeHash === this._computedSecretCodeHashes[0]) {
                             if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
-                            inputOverlay.remove(); // Remove input overlay
+                            inputOverlay.remove(); 
                             this._s = 0;
-                            // Updated image paths to include 'egg' subdirectory
+                            // Images are in the egg subdirectory.
+                            // Why did I name it as such? I do not know.
                             this.showImageDisplayOverlay('./egg/cert1.png', './egg/cert2.png');
                             return; // Exit function after displaying images
                         } else if (enteredCodeHash === this._computedSecretCodeHashes[1]) {
                             if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
-                            inputOverlay.remove(); // Remove input overlay
+                            inputOverlay.remove(); 
                             this._s = 0;
-                            this._startEffectM(); // Call obfuscated function
-                            return; // Exit function after starting effect
+                            this._startEffectM(); // Call function
+                            return; // Exit function after effect
                         } else if (enteredCodeHash === this._computedSecretCodeHashes[2]) {
                             // Secure context check for password reset
                             if (window.isSecureContext !== false) {
                                 if (typeof this.Log === 'function') this.Log("Secret code for password reset entered. Showing confirmation prompt.", LogLevel.info)
-                                inputOverlay.remove(); // Remove input overlay
+                                inputOverlay.remove(); 
                                 this._s = 0;
                                 var confirmed = await this.showConfirmationPrompt("Are you sure? This will delete your lock screen password and log you out from your ArcOS session?");
                                 if (confirmed) {
@@ -461,11 +450,10 @@ class proc extends ThirdPartyAppProcess {
                             }
                             return; // Exit function after handling prompt
                         } else if (enteredCodeHash === this._computedSecretCodeHashes[3]) {
-                            // Goose code: morph animation and show goose image
-                            if (typeof this.Log === 'function') this.Log("Goose code entered! Morphing animation and showing goose.", LogLevel.info);
+                            if (typeof this.Log === 'function') this.Log("Goose.", LogLevel.info);
                             inputOverlay.remove();
                             this._s = 0;
-                            this._showGooseEasterEgg();
+                            this._Goose();
                             return;
                         }
                     }
@@ -477,7 +465,7 @@ class proc extends ThirdPartyAppProcess {
                 return;
             }
             // After try/catch
-            if (unlockedBySecretCode === 1) { // This path is now only for generic unlock if not specific easter egg
+            if (unlockedBySecretCode === 1) { // This path is now only for generic unlock 
                 this._l = 1;
                 inputOverlay.remove();
                 this._s = 0;
@@ -489,7 +477,7 @@ class proc extends ThirdPartyAppProcess {
                     this.closeWindow();
                 }
             } else {
-                errorDiv.textContent = 'Invalid, foolish ' + (this.displayName || 'user'); // Changed message
+                errorDiv.textContent = 'Invalid, foolish ' + (this.displayName || 'user'); 
                 errorDiv.style.display = 'block';
             }
         };
@@ -501,15 +489,14 @@ class proc extends ThirdPartyAppProcess {
     secretCodeInput.onkeydown = (e) => { if (e.key === 'Enter') unlockSecretCodeBtn.click(); };
     }
 
-    // Goose easter egg: morph animation and show goose image
-    _showGooseEasterEgg() {
-        // Stop current animation
+    
+    _Goose() {
+        
         this._m = 1;
         var canvas = this.getBody().querySelector('#flurry-canvas');
         if (!canvas) return;
         var ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        // Draw a simple goose shape (ellipse body, circle head, beak, etc.)
         ctx.save();
         ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
         // Body
@@ -536,11 +523,11 @@ class proc extends ThirdPartyAppProcess {
         ctx.fillStyle = '#222';
         ctx.fill();
         ctx.restore();
-        // Show goose image overlay
+        // Show goose overlay
         this._showGooseImageOverlay();
     }
 
-    // Overlay for goose image
+    // Overlay for image
     _showGooseImageOverlay() {
         var body = this.getBody();
         if (!body) return;
@@ -597,7 +584,7 @@ class proc extends ThirdPartyAppProcess {
                 <button id="shutdown-btn" style="padding: 10px 22px; border-radius: 8px; border: none; background: #dc2626; color: #fff; font-weight: 600; font-size: 1em; cursor: pointer;">Shut Down</button>
             </div>
         `;
-        // Logoff/Restart/Shutdown button handlers
+        // Button handlers
         const logoffBtn = overlay.querySelector('#logoff-btn');
         const restartBtn = overlay.querySelector('#restart-btn');
         const shutdownBtn = overlay.querySelector('#shutdown-btn');
@@ -671,7 +658,7 @@ class proc extends ThirdPartyAppProcess {
                     }
                 }
                 if (unlocked) {
-                    this._l = 1; // Mark as unlocked
+                    this._l = 1; 
                     overlay.remove();
                     this._u = 0;
                     this._restoreAnimationAndListeners();
@@ -788,8 +775,6 @@ class proc extends ThirdPartyAppProcess {
         if (closeBtn) {
             closeBtn.onclick = () => {
                 imageOverlay.remove();
-                // When closing image overlay, do not show password overlay.
-                // The main render loop will keep the background animation running.
             };
         }
     }
@@ -866,7 +851,6 @@ class proc extends ThirdPartyAppProcess {
             return;
         }
 
-        // Use devicePixelRatio for crispness
         var resizeCanvas = () => {
             const dpr = window.devicePixelRatio || 1;
             canvas.width = window.innerWidth * dpr;
@@ -975,10 +959,10 @@ class proc extends ThirdPartyAppProcess {
     }
 
     /**
-     * Starts the special code effect on the canvas.
+     * Starts the special effect on the canvas.
      */
     _startEffectM() {
-        this._m = 1; // Set effect active flag to true
+        this._m = 1; 
         var canvas = this.getBody().querySelector('#flurry-canvas');
         if (!canvas) {
             if (typeof this.Log === 'function') this.Log("Effect canvas not found!", LogLevel.error);
@@ -989,15 +973,14 @@ class proc extends ThirdPartyAppProcess {
         var effectChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; 
         var effectFontSize = 16; 
         var effectColumns = canvas.width / effectFontSize; 
-        var effectDrops = []; // Array to store y-position of each column's character
+        var effectDrops = []; 
 
-        // Initialize drops to random starting positions
         for (var x = 0; x < effectColumns; x++) {
             effectDrops[x] = Math.random() * canvas.height / effectFontSize;
         }
 
-        var drawEffect = () => { // Formerly drawMatrix
-            if (this._m === 0 || this._disposed) return; // Stop if effect is NOT active or disposed
+        var drawEffect = () => { 
+            if (this._m === 0 || this._disposed) return; 
 
             // Semi-transparent black rectangle to fade out previous frames
             ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
@@ -1010,7 +993,6 @@ class proc extends ThirdPartyAppProcess {
                 var text = effectChars.charAt(Math.floor(Math.random() * effectChars.length));
                 ctx.fillText(text, i * effectFontSize, effectDrops[i] * effectFontSize);
 
-                // Send the character back to the top randomly
                 if (effectDrops[i] * effectFontSize > canvas.height && Math.random() > 0.975) {
                     effectDrops[i] = 0;
                 }
@@ -1024,14 +1006,14 @@ class proc extends ThirdPartyAppProcess {
 
         // Set a timeout to automatically revert after a few seconds
         this._effectTimeout = setTimeout(() => {
-            this._stopEffectM(); // Call obfuscated function
+            this._stopEffectM(); // Call function
             // Do NOT call showPasswordOverlay() here. Return to background animation.
         }, 15000); // 15 seconds
 
         // Add a temporary key listener to stop the effect immediately
         this._effectDismissListener = (e) => {
             // Any key press will dismiss the effect
-            this._stopEffectM(); // Call obfuscated function
+            this._stopEffectM(); // Call  function
             // Do NOT call showPasswordOverlay() here. Return to background animation.
             window.removeEventListener('keydown', this._effectDismissListener);
         };
@@ -1039,10 +1021,10 @@ class proc extends ThirdPartyAppProcess {
     }
 
     /**
-     * Stops the special code effect and cleans up.
+     * Stops the special effect and cleans up.
      */
     _stopEffectM() {
-        this._m = 0; // Set effect active flag to false
+        this._m = 0;
         if (this._effectTimeout) {
             clearTimeout(this._effectTimeout);
             this._effectTimeout = null;
