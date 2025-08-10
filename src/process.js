@@ -21,9 +21,68 @@ var RESET_PASSWORD_MARKER = "__ARC_OS_LOCKSCREEN_RESET__";
 // This class extends ThirdPartyAppProcess, which is assumed to provide
 // methods like getBody(), userPreferences(), userDaemon, handler, closeWindow.
 class proc extends ThirdPartyAppProcess {
+    // Corrected constructor and other methods to be inside the class body
+    constructor(...args) {
+        super(...args);
+        this._canUsePersistentHashing = false; // Determined during constructor/render
+        this._localPassword = null;
+        this._localPasswordHash = null;
+        this._lockScreenPasswordFilePath = 'U:/Config/NikN_Screensaver/lockscreen.pwd.hash';
+        this._computedSecretCodeHashes = [];
+        this._u = 0; // lock overlay active
+        this._s = 0; // secret code overlay active
+        this._l = 0; // unlocked status
+        this._m = 0; // matrix effect active
+        this._disposed = false;
+
+        // --- Initial Feature Detection for Persistent Hashing ---
+        try {
+            if (typeof util !== 'undefined' && typeof util.sha256 === 'function' &&
+                typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' && typeof convert.textToBlob === 'function' &&
+                this.fs && typeof this.fs.readFile === 'function' && typeof this.fs.writeFile === 'function') {
+
+                this._canUsePersistentHashing = true;
+                if (typeof this.Log === 'function') this.Log("Persistent hashing and file system operations are initially detected as available.", LogLevel.info);
+            } else {
+                if (typeof this.Log === 'function') this.Log("Initial check: Some core utilities for persistent hashing are not fully available. Will fall back to in-memory password storage.", LogLevel.warning);
+            }
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log("Error during initial utility check for persistent hashing: " + e.message, LogLevel.error);
+            this._canUsePersistentHashing = false; // Ensure it's false on any error
+        }
+    }
+
+    // Call this method after instantiating proc to perform async initialization.
+    async initialize() {
+        if (this._canUsePersistentHashing && this.fs && typeof this.fs.readFile === 'function') {
+            try {
+                const configPath = 'U:/Config/NikN_Screensaver/lockscreen.pwd.hash';
+                const file = await this.fs.readFile(configPath);
+                if (file) {
+                    const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function'
+                        ? convert.arrayToText(new Uint8Array(file))
+                        : new TextDecoder().decode(new Uint8Array(file));
+                    if (text === RESET_PASSWORD_MARKER) {
+                        this._localPasswordHash = null;
+                        if (typeof this.Log === 'function') this.Log("Lock screen password reset marker found. Prompting for new password.", LogLevel.info);
+                    } else {
+                        this._localPasswordHash = text;
+                        if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
+                    }
+                } else {
+                    this._localPasswordHash = null;
+                }
+            } catch (e) {
+                if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file: " + e.message, LogLevel.warning);
+                this._localPasswordHash = null;
+            }
+        }
+    }
+
     _getUiBody() {
-    return this.getBody();
-}
+        return this.getBody();
+    }
+
     // Loads settings from config file or defaults
     async _loadSettings() {
         const defaultSettings = {
@@ -61,6 +120,7 @@ class proc extends ThirdPartyAppProcess {
             if (typeof this.Log === 'function') this.Log('Could not save screensaver settings: ' + e.message, LogLevel.error);
         }
     }
+
     // Shows a user error message as a temporary overlay
     _showUserError(message) {
         const body = this._getUiBody();
@@ -72,64 +132,10 @@ class proc extends ThirdPartyAppProcess {
         errorDiv.style = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;padding:16px 32px;border-radius:8px;z-index:30000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.2);font-family:Segoe UI,sans-serif;';
         errorDiv.textContent = message;
         body.appendChild(errorDiv);
-        setTimeout(() => { if (errorDiv.parentNode) errorDiv.remove(); }, 3000);
-        return this.getBody();
+        setTimeout(() => {
+            if (errorDiv.parentNode) errorDiv.remove();
+        }, 3000);
     }
-
-
-
-constructor(...args) {
-    super(...args);
-    this._canUsePersistentHashing = false; // Determined during constructor/render
-
-    // --- Initial Feature Detection for Persistent Hashing ---
-    try {
-        if (typeof util !== 'undefined' && typeof util.sha256 === 'function' &&
-            typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' && typeof convert.textToBlob === 'function' &&
-            this.fs && typeof this.fs.readFile === 'function' && typeof this.fs.writeFile === 'function') {
-
-            this._canUsePersistentHashing = true;
-            if (typeof this.Log === 'function') this.Log("Persistent hashing and file system operations are initially detected as available.", LogLevel.info);
-        } else {
-            if (typeof this.Log === 'function') this.Log("Initial check: Some core utilities for persistent hashing are not fully available. Will fall back to in-memory password storage.", LogLevel.warning);
-        }
-    } catch (e) {
-        if (typeof this.Log === 'function') this.Log("Error during initial utility check for persistent hashing: " + e.message, LogLevel.error);
-        this._canUsePersistentHashing = false; // Ensure it's false on any error
-    }
-}
-}
-
-/**
- * Call this method after instantiating proc to perform async initialization.
- */
-async initialize() {
-    if (this._h === 1 && this.fs && typeof this.fs.readFile === 'function') {
-        try {
-            const configPath = 'U:/Config/NikN_Screensaver/lockscreen.pwd.hash';
-            const file = await this.fs.readFile(configPath);
-            if (file) {
-                const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function'
-                    ? convert.arrayToText(new Uint8Array(file))
-                    : new TextDecoder().decode(new Uint8Array(file));
-                if (text === RESET_PASSWORD_MARKER) {
-                    this._localPasswordHash = null;
-                    if (typeof this.Log === 'function') this.Log("Lock screen password reset marker found. Prompting for new password.", LogLevel.info);
-                } else {
-                    this._localPasswordHash = text;
-                    if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
-                }
-            } else {
-                this._localPasswordHash = null;
-            }
-        } catch (e) {
-            if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file: " + e.message, LogLevel.warning);
-            this._localPasswordHash = null;
-        }
-    }
-}
-    
-
 
     /**
      * Dynamically computes the SHA256 hashes of the hardcoded secret codes.
@@ -155,7 +161,7 @@ async initialize() {
             if (typeof this.Log === 'function') this.Log("Dynamically computed secret code hashes.", LogLevel.info);
         } else {
             if (typeof this.Log === 'function') this.Log("util.sha256 not available. Secret codes will not be functional.", LogLevel.warning);
-            this._computedSecretCodeHashes = []; 
+            this._computedSecretCodeHashes = [];
         }
     }
 
@@ -163,54 +169,54 @@ async initialize() {
      * Initial application UI.
      */
     async render() {
-    await this._loadSettings();
-    const body = this.getBody();
-    if (!body) return;
-    body.innerHTML = htmlContent;
+        await this._loadSettings();
+        const body = this.getBody();
+        if (!body) return;
+        body.innerHTML = htmlContent;
 
-    // Try to get user info
-    try {
-        const prefs = this.userPreferences && typeof this.userPreferences === 'function' ? this.userPreferences() : null;
-        if (prefs && prefs.account) {
-            this.displayName = prefs.account.displayName || 'User';
-            this.profilePicture = prefs.account.profilePicture || null;
-        } else {
+        // Try to get user info
+        try {
+            const prefs = this.userPreferences && typeof this.userPreferences === 'function' ? this.userPreferences() : null;
+            if (prefs && prefs.account) {
+                this.displayName = prefs.account.displayName || 'User';
+                this.profilePicture = prefs.account.profilePicture || null;
+            } else {
+                this.displayName = 'User';
+                this.profilePicture = null;
+            }
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log("Error fetching user preferences: " + e.message, LogLevel.error);
             this.displayName = 'User';
             this.profilePicture = null;
         }
-    } catch (e) {
-        if (typeof this.Log === 'function') this.Log("Error fetching user preferences: " + e.message, LogLevel.error);
-        this.displayName = 'User';
-        this.profilePicture = null;
-    }
 
-    // Attempt to load the hashed lock screen password from file
-    if (this._canUsePersistentHashing && this._lockScreenPasswordFilePath) {
-        try {
-            const fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
-            if (fileContent) {
-                this._localPasswordHash = convert.arrayToText(new Uint8Array(fileContent));
-                if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
+        // Attempt to load the hashed lock screen password from file
+        if (this._canUsePersistentHashing && this._lockScreenPasswordFilePath) {
+            try {
+                const fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
+                if (fileContent) {
+                    this._localPasswordHash = convert.arrayToText(new Uint8Array(fileContent));
+                    if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
+                }
+            } catch (e) {
+                if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file: " + e.message, LogLevel.warning);
+                this._localPasswordHash = null;
+                this._canUsePersistentHashing = false; // Disable persistent hashing on read error
             }
-        } catch (e) {
-            if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file: " + e.message, LogLevel.warning);
-            this._localPasswordHash = null;
-            this._canUsePersistentHashing = false; // Disable persistent hashing on read error
         }
+
+        // Determine if a password already exists (either hashed or in-memory)
+        const passwordExists = this._canUsePersistentHashing ? !!this._localPasswordHash : !!this._localPassword;
+
+        if (!passwordExists) {
+            this.showSetPasswordDialog();
+        } else {
+            this.showPasswordOverlay();
+        }
+
+        this.startFlurryAnimation();
     }
 
-    // Determine if a password already exists (either hashed or in-memory)
-    const passwordExists = this._canUsePersistentHashing ? !!this._localPasswordHash : !!this._localPassword;
-
-    if (!passwordExists) {
-        this.showSetPasswordDialog();
-    } else {
-        this.showPasswordOverlay();
-    }
-
-    this.startFlurryAnimation();
-}
-    
     async onClose() {
         if (this._l === 1) {
             return true;
@@ -290,7 +296,7 @@ async initialize() {
             }
 
             try {
-                if (this._h === 1 && this._lockScreenPasswordFilePath) {
+                if (this._canUsePersistentHashing && this._lockScreenPasswordFilePath) {
                     try {
                         var hashedPassword = await util.sha256(newPassword);
                         this._localPasswordHash = hashedPassword;
@@ -301,7 +307,7 @@ async initialize() {
                         if (typeof this.Log === 'function') this.Log("Hashed lock screen password saved to file: " + this._lockScreenPasswordFilePath, LogLevel.info);
                     } catch (e) {
                         if (typeof this.Log === 'function') this.Log("Error during persistent password setup (hashing or file write): " + e.message, LogLevel.error);
-                        this._h = 0;
+                        this._canUsePersistentHashing = false;
                         this._localPassword = newPassword;
                     }
                 } else {
@@ -319,8 +325,12 @@ async initialize() {
             }
         };
 
-        newPasswordInput.onkeydown = (e) => { if (e.key === 'Enter') setPasswordBtn.click(); };
-        confirmPasswordInput.onkeydown = (e) => { if (e.key === 'Enter') setPasswordBtn.click(); };
+        newPasswordInput.onkeydown = (e) => {
+            if (e.key === 'Enter') setPasswordBtn.click();
+        };
+        confirmPasswordInput.onkeydown = (e) => {
+            if (e.key === 'Enter') setPasswordBtn.click();
+        };
     }
 
     /**
@@ -349,8 +359,7 @@ async initialize() {
         `;
         inputOverlay.innerHTML = `
             <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
-                <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 24px;"></div> <!-- Title is blank -->
-                <input id="secret-code-unlock-input" type="text" placeholder=""
+                <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 24px;"></div> <input id="secret-code-unlock-input" type="text" placeholder=""
                        style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
                        onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
                 <div style="display: flex; gap: 12px; margin-bottom: 16px;">
@@ -398,7 +407,7 @@ async initialize() {
                         // Compare entered hash directly with computed hashes
                         if (enteredCodeHash === this._computedSecretCodeHashes[0]) {
                             if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
-                            inputOverlay.remove(); 
+                            inputOverlay.remove();
                             this._s = 0;
                             // Images are in the egg subdirectory.
                             // Why did I name it as such? I do not know.
@@ -406,7 +415,7 @@ async initialize() {
                             return; // Exit function after displaying images
                         } else if (enteredCodeHash === this._computedSecretCodeHashes[1]) {
                             if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
-                            inputOverlay.remove(); 
+                            inputOverlay.remove();
                             this._s = 0;
                             this._startEffectM(); // Call function
                             return; // Exit function after effect
@@ -414,7 +423,7 @@ async initialize() {
                             // Secure context check for password reset
                             if (window.isSecureContext !== false) {
                                 if (typeof this.Log === 'function') this.Log("Secret code for password reset entered. Showing confirmation prompt.", LogLevel.info)
-                                inputOverlay.remove(); 
+                                inputOverlay.remove();
                                 this._s = 0;
                                 var confirmed = await this.showConfirmationPrompt("Are you sure? This will delete your lock screen password and log you out from your ArcOS session?");
                                 if (confirmed) {
@@ -425,7 +434,7 @@ async initialize() {
                                             await this.fs.writeFile(this._lockScreenPasswordFilePath, blob);
                                             this._localPasswordHash = null; // Clear in-memory hash
                                             this._localPassword = null; // Clear in-memory plaintext
-                                            this._h = 0; // Reset persistent hashing flag
+                                            this._canUsePersistentHashing = false; // Reset persistent hashing flag
                                             if (typeof this.Log === 'function') this.Log("Lock screen password reset marker written successfully.", LogLevel.info);
                                         } else {
                                             if (typeof this.Log === 'function') this.Log("File system write function not available or path invalid for reset.", LogLevel.error);
@@ -465,7 +474,7 @@ async initialize() {
                 return;
             }
             // After try/catch
-            if (unlockedBySecretCode === 1) { // This path is now only for generic unlock 
+            if (unlockedBySecretCode === 1) { // This path is now only for generic unlock
                 this._l = 1;
                 inputOverlay.remove();
                 this._s = 0;
@@ -477,21 +486,21 @@ async initialize() {
                     this.closeWindow();
                 }
             } else {
-                errorDiv.textContent = 'Invalid, foolish ' + (this.displayName || 'user'); 
+                errorDiv.textContent = 'Invalid, foolish ' + (this.displayName || 'user');
                 errorDiv.style.display = 'block';
             }
         };
-    cancelBtn.onclick = () => {
-        inputOverlay.remove();
-        this._s = 0;
-        // No action to go back to main password overlay. Just close.
-    };
-    secretCodeInput.onkeydown = (e) => { if (e.key === 'Enter') unlockSecretCodeBtn.click(); };
+        cancelBtn.onclick = () => {
+            inputOverlay.remove();
+            this._s = 0;
+            // No action to go back to main password overlay. Just close.
+        };
+        secretCodeInput.onkeydown = (e) => {
+            if (e.key === 'Enter') unlockSecretCodeBtn.click();
+        };
     }
 
-    
     _Goose() {
-        
         this._m = 1;
         var canvas = this.getBody().querySelector('#flurry-canvas');
         if (!canvas) return;
@@ -501,25 +510,25 @@ async initialize() {
         ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
         // Body
         ctx.beginPath();
-        ctx.ellipse(canvas.width/2, canvas.height/2+40, 80, 120, 0, 0, 2*Math.PI);
+        ctx.ellipse(canvas.width / 2, canvas.height / 2 + 40, 80, 120, 0, 0, 2 * Math.PI);
         ctx.fillStyle = '#fff';
         ctx.fill();
         // Head
         ctx.beginPath();
-        ctx.arc(canvas.width/2+60, canvas.height/2-40, 32, 0, 2*Math.PI);
+        ctx.arc(canvas.width / 2 + 60, canvas.height / 2 - 40, 32, 0, 2 * Math.PI);
         ctx.fillStyle = '#fff';
         ctx.fill();
         // Beak
         ctx.beginPath();
-        ctx.moveTo(canvas.width/2+92, canvas.height/2-40);
-        ctx.lineTo(canvas.width/2+120, canvas.height/2-32);
-        ctx.lineTo(canvas.width/2+92, canvas.height/2-24);
+        ctx.moveTo(canvas.width / 2 + 92, canvas.height / 2 - 40);
+        ctx.lineTo(canvas.width / 2 + 120, canvas.height / 2 - 32);
+        ctx.lineTo(canvas.width / 2 + 92, canvas.height / 2 - 24);
         ctx.closePath();
         ctx.fillStyle = '#ff9900';
         ctx.fill();
         // Eye
         ctx.beginPath();
-        ctx.arc(canvas.width/2+75, canvas.height/2-50, 4, 0, 2*Math.PI);
+        ctx.arc(canvas.width / 2 + 75, canvas.height / 2 - 50, 4, 0, 2 * Math.PI);
         ctx.fillStyle = '#222';
         ctx.fill();
         ctx.restore();
@@ -538,7 +547,11 @@ async initialize() {
             background: rgba(0,0,0,0.0); z-index: 12000; display: flex; align-items: center; justify-content: center; pointer-events: none;`;
         gooseOverlay.innerHTML = `<img src='./egg/goose.png' alt='Goose' style='width: 256px; height: auto; filter: drop-shadow(0 8px 32px #0008); pointer-events: none;'>`;
         body.appendChild(gooseOverlay);
-        setTimeout(() => { if (gooseOverlay.parentNode) gooseOverlay.remove(); this._m = 0; this.startFlurryAnimation(); }, 6000);
+        setTimeout(() => {
+            if (gooseOverlay.parentNode) gooseOverlay.remove();
+            this._m = 0;
+            this.startFlurryAnimation();
+        }, 6000);
     }
 
     /**
@@ -643,10 +656,10 @@ async initialize() {
                     return;
                 }
                 let unlocked = false;
-                if (this._h === 1 && this._localPasswordHash && typeof util !== 'undefined' && typeof util.sha256 === 'function') {
+                if (this._canUsePersistentHashing && this._localPasswordHash && typeof util !== 'undefined' && typeof util.sha256 === 'function') {
                     const enteredHash = await util.sha256(password);
                     if (enteredHash === this._localPasswordHash) unlocked = true;
-                } else if (this._h === 0 && this._localPassword) {
+                } else if (!this._canUsePersistentHashing && this._localPassword) {
                     if (password === this._localPassword) unlocked = true;
                 }
                 if (!unlocked && this.userDaemon && typeof this.userDaemon.validatePassword === 'function') {
@@ -658,7 +671,7 @@ async initialize() {
                     }
                 }
                 if (unlocked) {
-                    this._l = 1; 
+                    this._l = 1;
                     overlay.remove();
                     this._u = 0;
                     this._restoreAnimationAndListeners();
@@ -685,7 +698,9 @@ async initialize() {
         settingsBtn.onclick = () => {
             this._showSettingsModal();
         };
-        passwordInput.onkeydown = (e) => { if (e.key === 'Enter') unlockBtn.click(); };
+        passwordInput.onkeydown = (e) => {
+            if (e.key === 'Enter') unlockBtn.click();
+        };
         setTimeout(() => passwordInput.focus(), 0);
     }
 
@@ -699,7 +714,12 @@ async initialize() {
         modal.style = `
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background-color: rgba(0,0,0,0.7); z-index: 20000; display: flex; align-items: center; justify-content: center;`;
-    const s = this._settings || { numCurves: 12, pointsPerCurve: 10, speed: 1.2, colorScheme: 'default' };
+        const s = this._settings || {
+            numCurves: 12,
+            pointsPerCurve: 10,
+            speed: 1.2,
+            colorScheme: 'default'
+        };
         modal.innerHTML = `
             <div style="background: #222; color: #fff; padding: 32px; border-radius: 16px; min-width: 340px; max-width: 95vw; box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center;">
                 <h2 style="font-size: 1.5em; margin-bottom: 16px;">Screensaver Settings</h2>
@@ -730,7 +750,12 @@ async initialize() {
             const pointsPerCurve = Math.max(3, Math.min(30, parseInt(modal.querySelector('#points-per-curve').value) || 10));
             const speed = Math.max(0.1, Math.min(5, parseFloat(modal.querySelector('#curve-speed').value) || 1.2));
             const colorScheme = modal.querySelector('#color-scheme').value;
-            this._settings = { numCurves, pointsPerCurve, speed, colorScheme };
+            this._settings = {
+                numCurves,
+                pointsPerCurve,
+                speed,
+                colorScheme
+            };
             await this._saveSettings();
             modal.remove();
             this.startFlurryAnimation();
@@ -862,7 +887,12 @@ async initialize() {
         resizeCanvas();
 
         var ctx = canvas.getContext('2d');
-        var settings = this._settings || { numCurves: 12, pointsPerCurve: 10, speed: 1.2, colorScheme: 'default' };
+        var settings = this._settings || {
+            numCurves: 12,
+            pointsPerCurve: 10,
+            speed: 1.2,
+            colorScheme: 'default'
+        };
         var NUM_CURVES = settings.numCurves;
         var POINTS_PER_CURVE = settings.pointsPerCurve;
         var SPEED = settings.speed;
@@ -889,9 +919,11 @@ async initialize() {
             ],
         };
         var colors = colorSchemes[settings.colorScheme] || colorSchemes.default;
+
         function random(min, max) {
             return Math.random() * (max - min) + min;
         }
+
         function createCurve() {
             var points = [];
             for (var i = 0; i < POINTS_PER_CURVE; i++) {
@@ -959,10 +991,21 @@ async initialize() {
     }
 
     /**
+     * Restores the animation and listeners after an overlay is dismissed.
+     */
+    _restoreAnimationAndListeners() {
+        if (!this._disposed) {
+            this.startFlurryAnimation();
+            this._setupEventListeners();
+        }
+    }
+
+
+    /**
      * Starts the special effect on the canvas.
      */
     _startEffectM() {
-        this._m = 1; 
+        this._m = 1;
         var canvas = this.getBody().querySelector('#flurry-canvas');
         if (!canvas) {
             if (typeof this.Log === 'function') this.Log("Effect canvas not found!", LogLevel.error);
@@ -970,17 +1013,17 @@ async initialize() {
         }
         var ctx = canvas.getContext('2d');
 
-        var effectChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; 
-        var effectFontSize = 16; 
-        var effectColumns = canvas.width / effectFontSize; 
-        var effectDrops = []; 
+        var effectChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        var effectFontSize = 16;
+        var effectColumns = canvas.width / effectFontSize;
+        var effectDrops = [];
 
         for (var x = 0; x < effectColumns; x++) {
             effectDrops[x] = Math.random() * canvas.height / effectFontSize;
         }
 
-        var drawEffect = () => { 
-            if (this._m === 0 || this._disposed) return; 
+        var drawEffect = () => {
+            if (this._m === 0 || this._disposed) return;
 
             // Semi-transparent black rectangle to fade out previous frames
             ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
@@ -1043,5 +1086,6 @@ async initialize() {
     }
 }
 
-
-return { proc };
+return {
+    proc
+};
