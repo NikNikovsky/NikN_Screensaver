@@ -28,6 +28,7 @@ class proc extends ThirdPartyAppProcess {
         this._localPassword = null;
         this._localPasswordHash = null;
         this._lockScreenPasswordFilePath = 'U:/Config/NikN_Screensaver/lockscreen.pwd.hash';
+        // REPLACE WHEN 7.0.5 RELEASES:const configPath = 'U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash'
         this._computedSecretCodeHashes = [];
         this._u = 0; // lock overlay active
         this._s = 0; // secret code overlay active
@@ -57,6 +58,7 @@ class proc extends ThirdPartyAppProcess {
         if (this._canUsePersistentHashing && this.fs && typeof this.fs.readFile === 'function') {
             try {
                 const configPath = 'U:/Config/NikN_Screensaver/lockscreen.pwd.hash';
+                // REPLACE WHEN 7.0.5 RELEASES:const configPath = 'U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash'
                 const file = await this.fs.readFile(configPath);
                 if (file) {
                     const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function'
@@ -82,8 +84,8 @@ class proc extends ThirdPartyAppProcess {
     _getUiBody() {
         return this.getBody();
     }
-    _setupEventListeners() {
-    // Example: Add a listener for the space key to show the password overlay
+_setupEventListeners() {
+    // Add a listener for the space key to show the password overlay
     this._showOverlayListener = (e) => {
         if (!this.unlocking && !this.unlocked && (e.code === 'Space' || e.key === ' ')) {
             this.showPasswordOverlay();
@@ -91,7 +93,13 @@ class proc extends ThirdPartyAppProcess {
     };
     window.addEventListener('keydown', this._showOverlayListener);
 
-    // Add other event listeners as needed
+    // Add a listener for Alt + I keybind to show the password overlay
+    this._altIListener = (e) => {
+        if (e.altKey && e.key === 'I') {
+            this.showPasswordOverlay();
+        }
+    };
+    window.addEventListener('keydown', this._altIListener);
 }
 
     // Loads settings from config file or defaults
@@ -106,6 +114,7 @@ class proc extends ThirdPartyAppProcess {
         try {
             if (this.fs && typeof this.fs.readFile === 'function') {
                 const configPath = 'U:/Config/NikN_Screensaver/screensaver.json';
+                // REPLACE WHEN 7.0.5 RELEASES:const configPath = 'U:/System/Config/NikN_Screensaver/screensaver.json'
                 const file = await this.fs.readFile(configPath);
                 if (file) {
                     const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' ? convert.arrayToText(new Uint8Array(file)) : new TextDecoder().decode(new Uint8Array(file));
@@ -123,6 +132,7 @@ class proc extends ThirdPartyAppProcess {
         try {
             if (this.fs && typeof this.fs.writeFile === 'function') {
                 const configPath = 'U:/Config/NikN_Screensaver/screensaver.json';
+                // REPLACE WHEN 7.0.5 RELEASES:const configPath = 'U:/System/Config/NikN_Screensaver/screensaver.json'
                 const json = JSON.stringify(this._settings);
                 const blob = typeof convert !== 'undefined' && typeof convert.textToBlob === 'function' ? convert.textToBlob(json, 'application/json') : new Blob([json], { type: 'application/json' });
                 await this.fs.writeFile(configPath, blob);
@@ -132,21 +142,24 @@ class proc extends ThirdPartyAppProcess {
         }
     }
 
-    // Shows a user error message as a temporary overlay
-    _showUserError(message) {
-        const body = this._getUiBody();
-        if (!body) return;
-        let errorDiv = body.querySelector('#user-error-overlay');
-        if (errorDiv) errorDiv.remove();
-        errorDiv = document.createElement('div');
-        errorDiv.id = 'user-error-overlay';
-        errorDiv.style = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;padding:16px 32px;border-radius:8px;z-index:30000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.2);font-family:Segoe UI,sans-serif;';
-        errorDiv.textContent = message;
-        body.appendChild(errorDiv);
-        setTimeout(() => {
-            if (errorDiv.parentNode) errorDiv.remove();
-        }, 3000);
-    }
+_showUserError(message) {
+    const body = this._getUiBody();
+    if (!body) return;
+
+    // Remove any existing error messages
+    let errorDiv = body.querySelector('#user-error-overlay');
+    if (errorDiv) errorDiv.remove();
+
+    // Create a new error message
+    errorDiv = document.createElement('div');
+    errorDiv.id = 'user-error-overlay';
+    errorDiv.style = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;padding:16px 32px;border-radius:8px;z-index:30000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.2);font-family:Segoe UI,sans-serif;';
+    errorDiv.textContent = message;
+    body.appendChild(errorDiv);
+
+    // Remove the error message after 3 seconds
+    setTimeout(() => { if (errorDiv.parentNode) errorDiv.remove(); }, 3000);
+}
 
     /**
      * Dynamically computes the SHA256 hashes of the hardcoded secret codes.
