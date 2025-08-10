@@ -93,6 +93,8 @@ _setupEventListeners() {
     window.addEventListener('keydown', this._showOverlayListener);
 
     // Register Alt+I accelerator using acceleratorStore
+    this.Log(`acceleratorStore state: ${this.acceleratorStore ? 'Available' : 'Unavailable'}`, 0); // LogLevel.info
+    this.Log(`Fallback listener state: ${this._secretCodeKeyListener ? 'Active' : 'Inactive'}`, 0); // LogLevel.info
     if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
         this.acceleratorStore.push({
             alt: true,
@@ -391,6 +393,7 @@ showSecretCodeInputOverlay() {
         return;
     }
 
+
     this.Log('Creating secret code input overlay.', 0); // LogLevel.info
     const inputOverlay = document.createElement('div');
     inputOverlay.id = 'secret-code-input-overlay';
@@ -400,7 +403,7 @@ showSecretCodeInputOverlay() {
             <button id="unlock-secret-code-btn">Unlock</button>
             <div id="secret-code-unlock-error" style="color: red; display: none;"></div>
         </div>
-    `;
+    `
 
     body.appendChild(inputOverlay);
     this.Log('Secret code input overlay appended to body.', 0); // LogLevel.info
