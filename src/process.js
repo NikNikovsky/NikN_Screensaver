@@ -57,8 +57,7 @@ class proc extends ThirdPartyAppProcess {
     async initialize() {
         if (this._canUsePersistentHashing && this.fs && typeof this.fs.readFile === 'function') {
             try {
-                const configPath = 'U:/Config/NikN_Screensaver/lockscreen.pwd.hash';
-                // REPLACE WHEN 7.0.5 RELEASES:const configPath = 'U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash'
+               const configPath = 'U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash';
                 const file = await this.fs.readFile(configPath);
                 if (file) {
                     const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function'
@@ -93,13 +92,36 @@ _setupEventListeners() {
     };
     window.addEventListener('keydown', this._showOverlayListener);
 
-    // Add a listener for Alt + I keybind to show the password overlay
-    this._altIListener = (e) => {
-        if (e.altKey && e.key === 'I') {
-            this.showPasswordOverlay();
-        }
-    };
-    window.addEventListener('keydown', this._altIListener);
+    // Register Alt+I accelerator using acceleratorStore
+    if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
+        this.acceleratorStore.push({
+            alt: true,
+            key: "i",
+            action: (proc, event) => {
+                this.Log(`Alt+I triggered. _u: ${this._u}, _l: ${this._l}`, 0); // LogLevel.info
+                if (this._u === 0 && this._l === 0) {
+                    this.showSecretCodeInputOverlay();
+                } else {
+                    this.Log("Alt+I conditions not met. Menu not opened.", 1); // LogLevel.warning
+                }
+            },
+            global: true
+        });
+        this.Log("Registered Alt+I keyboard shortcut via acceleratorStore.", 0); // LogLevel.info
+    } else {
+        this.Log("acceleratorStore not available or not an array. Alt+I shortcut will not be registered.", 1); // LogLevel.warning
+        this._secretCodeKeyListener = (e) => {
+            this.Log(`Alt+I keydown event. _u: ${this._u}, _l: ${this._l}`, 0); // LogLevel.info
+            if (this._u === 0 && this._l === 0 && e.altKey && e.key === 'i') {
+                e.preventDefault();
+                this.showSecretCodeInputOverlay();
+            } else {
+                this.Log("Alt+I conditions not met. Menu not opened.", 1); // LogLevel.warning
+            }
+        };
+        window.addEventListener('keydown', this._secretCodeKeyListener);
+        this.Log("Falling back to window.addEventListener for Alt+I due to missing acceleratorStore.", 1); // LogLevel.warning
+    }
 }
 
     // Loads settings from config file or defaults
@@ -113,8 +135,7 @@ _setupEventListeners() {
         this._settings = defaultSettings;
         try {
             if (this.fs && typeof this.fs.readFile === 'function') {
-                const configPath = 'U:/Config/NikN_Screensaver/screensaver.json';
-                // REPLACE WHEN 7.0.5 RELEASES:const configPath = 'U:/System/Config/NikN_Screensaver/screensaver.json'
+                const configPath = 'U:/System/Config/NikN_Screensaver/screensaver.json';
                 const file = await this.fs.readFile(configPath);
                 if (file) {
                     const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' ? convert.arrayToText(new Uint8Array(file)) : new TextDecoder().decode(new Uint8Array(file));
@@ -131,8 +152,7 @@ _setupEventListeners() {
     async _saveSettings() {
         try {
             if (this.fs && typeof this.fs.writeFile === 'function') {
-                const configPath = 'U:/Config/NikN_Screensaver/screensaver.json';
-                // REPLACE WHEN 7.0.5 RELEASES:const configPath = 'U:/System/Config/NikN_Screensaver/screensaver.json'
+                const configPath = 'U:/System/Config/NikN_Screensaver/screensaver.json';
                 const json = JSON.stringify(this._settings);
                 const blob = typeof convert !== 'undefined' && typeof convert.textToBlob === 'function' ? convert.textToBlob(json, 'application/json') : new Blob([json], { type: 'application/json' });
                 await this.fs.writeFile(configPath, blob);
@@ -243,13 +263,15 @@ _showUserError(message) {
 
     async onClose() {
         if (this._l === 1) {
-            return true;
+            return true; // Allow closing if unlocked
         }
-        // Ensure we don't show multiple overlays if one is already active
+
         if (this._u === 0 && this._s === 0) {
             this.showPasswordOverlay();
         }
-        return false;
+
+        this.Log('Attempt to close app while locked.', 1); // LogLevel.warning
+        return false; // Block closing if locked
     }
 
     /**
@@ -357,226 +379,78 @@ _showUserError(message) {
         };
     }
 
-    /**
-     * Displays an overlay for the user to input a secret code to unlock.
-     */
-    showSecretCodeInputOverlay() {
-        if (this._s === 1) return;
-        this._s = 1;
-        var body = this.getBody();
-        if (!body) return;
+showSecretCodeInputOverlay() {
+    if (this._s === 1) {
+        this.Log('Secret code input overlay is already active.', 1); // LogLevel.warning
+        return;
+    }
+    this._s = 1;
+    const body = this.getBody();
+    if (!body) {
+        this.Log('Failed to get body element. Cannot show secret code input overlay.', 2); // LogLevel.error
+        return;
+    }
 
-        // If the main password overlay is active, remove it before showing secret code overlay
-        var mainOverlay = body.querySelector('#lock-overlay');
-        if (mainOverlay) {
-            mainOverlay.remove();
-            this._u = 0; // Reset main overlay flag
+    this.Log('Creating secret code input overlay.', 0); // LogLevel.info
+    const inputOverlay = document.createElement('div');
+    inputOverlay.id = 'secret-code-input-overlay';
+    inputOverlay.innerHTML = `
+        <div>
+            <input id="secret-code-unlock-input" type="text" placeholder="Enter secret code" autofocus />
+            <button id="unlock-secret-code-btn">Unlock</button>
+            <div id="secret-code-unlock-error" style="color: red; display: none;"></div>
+        </div>
+    `;
+
+    body.appendChild(inputOverlay);
+    this.Log('Secret code input overlay appended to body.', 0); // LogLevel.info
+
+    const secretCodeInput = inputOverlay.querySelector('#secret-code-unlock-input');
+    const unlockSecretCodeBtn = inputOverlay.querySelector('#unlock-secret-code-btn');
+    const errorDiv = inputOverlay.querySelector('#secret-code-unlock-error');
+
+    if (!secretCodeInput || !unlockSecretCodeBtn || !errorDiv) {
+        this.Log('Failed to find required elements in the secret code input overlay.', 2); // LogLevel.error
+        return;
+    }
+
+    unlockSecretCodeBtn.onclick = async () => {
+        const code = secretCodeInput.value;
+        errorDiv.style.display = 'none';
+
+        if (!code) {
+            errorDiv.textContent = 'Please enter a code.';
+            errorDiv.style.display = 'block';
+            return;
         }
 
-        var inputOverlay = document.createElement('div');
-        inputOverlay.id = 'secret-code-input-overlay';
-        inputOverlay.style = `
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(0, 0, 0, 0.85);
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
-        `;
-        inputOverlay.innerHTML = `
-            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
-                <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 24px;"></div> <input id="secret-code-unlock-input" type="text" placeholder=""
-                       style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
-                       onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
-                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                    <button id="unlock-secret-code-btn"
-                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                            onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
-                        Unlock
-                    </button>
-                    <button id="cancel-secret-code-unlock-btn"
-                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
-                            onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
-                        Cancel
-                    </button>
-                </div>
-                <div id="secret-code-unlock-error" style="color: #f87171; margin-top: 12px; font-size: 14px; display: none;"></div>
-            </div>
-        `;
-        body.appendChild(inputOverlay);
+        try {
+            if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
+                const enteredCodeHash = await util.sha256(code);
+                this.Log(`Entered code hash: ${enteredCodeHash}`, 0); // LogLevel.info
 
-        var secretCodeInput = inputOverlay.querySelector('#secret-code-unlock-input');
-        var unlockSecretCodeBtn = inputOverlay.querySelector('#unlock-secret-code-btn');
-        var cancelBtn = inputOverlay.querySelector('#cancel-secret-code-unlock-btn');
-        var errorDiv = inputOverlay.querySelector('#secret-code-unlock-error');
-
-        if (!secretCodeInput || !unlockSecretCodeBtn || !cancelBtn || !errorDiv) return;
-
-        unlockSecretCodeBtn.onclick = async () => {
-            var code = secretCodeInput.value;
-            errorDiv.style.display = 'none';
-
-            if (code.length === 0) {
-                errorDiv.textContent = 'Input a code.';
-                errorDiv.style.display = 'block';
-                return;
-            }
-
-            var unlockedBySecretCode = 0;
-            try {
-                if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
-                    var enteredCodeHash = await util.sha256(code);
-                    if (this._computedSecretCodeHashes.includes(enteredCodeHash)) {
-                        unlockedBySecretCode = 1;
-
-                        // --- Code Effects ---
-                        // Compare entered hash directly with computed hashes
-                        if (enteredCodeHash === this._computedSecretCodeHashes[0]) {
-                            if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
-                            inputOverlay.remove();
-                            this._s = 0;
-                            // Images are in the egg subdirectory.
-                            // Why did I name it as such? I do not know.
-                            this.showImageDisplayOverlay('./egg/cert1.png', './egg/cert2.png');
-                            return; // Exit function after displaying images
-                        } else if (enteredCodeHash === this._computedSecretCodeHashes[1]) {
-                            if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
-                            inputOverlay.remove();
-                            this._s = 0;
-                            this._startEffectM(); // Call function
-                            return; // Exit function after effect
-                        } else if (enteredCodeHash === this._computedSecretCodeHashes[2]) {
-                            // Secure context check for password reset
-                            if (window.isSecureContext !== false) {
-                                if (typeof this.Log === 'function') this.Log("Secret code for password reset entered. Showing confirmation prompt.", LogLevel.info)
-                                inputOverlay.remove();
-                                this._s = 0;
-                                var confirmed = await this.showConfirmationPrompt("Are you sure? This will delete your lock screen password and log you out from your ArcOS session?");
-                                if (confirmed) {
-                                    if (typeof this.Log === 'function') this.Log("Password reset confirmed. Attempting to write reset marker and log out from ArcOS.", LogLevel.info);
-                                    try {
-                                        if (this.fs && typeof this.fs.writeFile === 'function' && this._lockScreenPasswordFilePath) {
-                                            var blob = convert.textToBlob(RESET_PASSWORD_MARKER, 'text/plain');
-                                            await this.fs.writeFile(this._lockScreenPasswordFilePath, blob);
-                                            this._localPasswordHash = null; // Clear in-memory hash
-                                            this._localPassword = null; // Clear in-memory plaintext
-                                            this._canUsePersistentHashing = false; // Reset persistent hashing flag
-                                            if (typeof this.Log === 'function') this.Log("Lock screen password reset marker written successfully.", LogLevel.info);
-                                        } else {
-                                            if (typeof this.Log === 'function') this.Log("File system write function not available or path invalid for reset.", LogLevel.error);
-                                        }
-
-                                        if (this.userDaemon && typeof this.userDaemon.logoff === 'function') {
-                                            if (typeof this.Log === 'function') this.Log("Logging user out of ArcOS...", LogLevel.info);
-                                            await this.userDaemon.logoff();
-                                        } else {
-                                            if (typeof this.Log === 'function') this.Log("ArcOS logoff functionality not available via userDaemon.", LogLevel.error);
-                                        }
-                                    } catch (e) {
-                                        if (typeof this.Log === 'function') this.Log("Error during password reset/ArcOS Logoff: " + e.message, LogLevel.error);
-                                    }
-                                } else {
-                                    if (typeof this.Log === 'function') this.Log("Password reset cancelled.", LogLevel.info);
-                                }
-                            } else {
-                                if (typeof this.Log === 'function') this.Log("Password reset secret code attempted in insecure context. Action denied.", LogLevel.error);
-                                errorDiv.textContent = 'Password reset is only allowed in a secure context (https or localhost).';
-                                errorDiv.style.display = 'block';
-                            }
-                            return; // Exit function after handling prompt
-                        } else if (enteredCodeHash === this._computedSecretCodeHashes[3]) {
-                            if (typeof this.Log === 'function') this.Log("Goose.", LogLevel.info);
-                            inputOverlay.remove();
-                            this._s = 0;
-                            this._Goose();
-                            return;
-                        }
-                    }
-                }
-            } catch (e) {
-                if (typeof this.Log === 'function') this.Log("Error hashing secret code for validation: " + e.message, LogLevel.error);
-                errorDiv.textContent = 'An error occurred during validation.';
-                errorDiv.style.display = 'block';
-                return;
-            }
-            // After try/catch
-            if (unlockedBySecretCode === 1) { // This path is now only for generic unlock
-                this._l = 1;
-                inputOverlay.remove();
-                this._s = 0;
-                this._u = 0;
-                if (this._showOverlayListener) {
-                    window.removeEventListener('keydown', this._showOverlayListener);
-                }
-                if (typeof this.closeWindow === 'function') {
-                    this.closeWindow();
+                if (this._computedSecretCodeHashes.includes(enteredCodeHash)) {
+                    this.Log('Secret code accepted.', 0); // LogLevel.info
+                    inputOverlay.remove();
+                    this._s = 0;
+                    this._l = 1; // Unlock the app
+                    return;
                 }
             } else {
-                errorDiv.textContent = 'Invalid, foolish ' + (this.displayName || 'user');
-                errorDiv.style.display = 'block';
+                this.Log('util.sha256 is not available. Cannot validate secret codes.', 1); // LogLevel.warning
             }
-        };
-        cancelBtn.onclick = () => {
-            inputOverlay.remove();
-            this._s = 0;
-            // No action to go back to main password overlay. Just close.
-        };
-        secretCodeInput.onkeydown = (e) => {
-            if (e.key === 'Enter') unlockSecretCodeBtn.click();
-        };
-    }
+        } catch (e) {
+            this.Log(`Error validating secret code: ${e.message}`, 2); // LogLevel.error
+        }
 
-    _Goose() {
-        this._m = 1;
-        var canvas = this.getBody().querySelector('#flurry-canvas');
-        if (!canvas) return;
-        var ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.save();
-        ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
-        // Body
-        ctx.beginPath();
-        ctx.ellipse(canvas.width / 2, canvas.height / 2 + 40, 80, 120, 0, 0, 2 * Math.PI);
-        ctx.fillStyle = '#fff';
-        ctx.fill();
-        // Head
-        ctx.beginPath();
-        ctx.arc(canvas.width / 2 + 60, canvas.height / 2 - 40, 32, 0, 2 * Math.PI);
-        ctx.fillStyle = '#fff';
-        ctx.fill();
-        // Beak
-        ctx.beginPath();
-        ctx.moveTo(canvas.width / 2 + 92, canvas.height / 2 - 40);
-        ctx.lineTo(canvas.width / 2 + 120, canvas.height / 2 - 32);
-        ctx.lineTo(canvas.width / 2 + 92, canvas.height / 2 - 24);
-        ctx.closePath();
-        ctx.fillStyle = '#ff9900';
-        ctx.fill();
-        // Eye
-        ctx.beginPath();
-        ctx.arc(canvas.width / 2 + 75, canvas.height / 2 - 50, 4, 0, 2 * Math.PI);
-        ctx.fillStyle = '#222';
-        ctx.fill();
-        ctx.restore();
-        // Show goose overlay
-        this._showGooseImageOverlay();
-    }
+        errorDiv.textContent = 'Invalid secret code.';
+        errorDiv.style.display = 'block';
+    };
 
-    // Overlay for image
-    _showGooseImageOverlay() {
-        var body = this.getBody();
-        if (!body) return;
-        var gooseOverlay = document.createElement('div');
-        gooseOverlay.id = 'goose-image-overlay';
-        gooseOverlay.style = `
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.0); z-index: 12000; display: flex; align-items: center; justify-content: center; pointer-events: none;`;
-        gooseOverlay.innerHTML = `<img src='./egg/goose.png' alt='Goose' style='width: 256px; height: auto; filter: drop-shadow(0 8px 32px #0008); pointer-events: none;'>`;
-        body.appendChild(gooseOverlay);
-        setTimeout(() => {
-            if (gooseOverlay.parentNode) gooseOverlay.remove();
-            this._m = 0;
-            this.startFlurryAnimation();
-        }, 6000);
-    }
+    secretCodeInput.onkeydown = (e) => {
+        if (e.key === 'Enter') unlockSecretCodeBtn.click();
+    };
+}
 
     /**
      * Displays the password entry overlay for unlocking the screen.
@@ -1109,10 +983,10 @@ _showUserError(message) {
         }
     }
 
-    handleSecretCode() {
-        if (typeof this.Log === 'function') this.Log('Handling secret code logic.', LogLevel.info);
-        // Add logic for handling secret codes here
-        // For now, just log the event
+handleSecretCode() {
+    this.Log('Handling secret code logic.', 0); // LogLevel.info
+    // Add logic for handling secret codes here
+    // For now, just log the event
     }
 }
 
