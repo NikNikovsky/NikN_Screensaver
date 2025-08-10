@@ -93,11 +93,10 @@ _setupEventListeners() {
     };
     window.addEventListener('keydown', this._showOverlayListener);
 
-    // Add a listener for Alt + I keybind to handle secret codes
+    // Add a listener for Alt + I keybind to show the password overlay
     this._altIListener = (e) => {
         if (e.altKey && e.key === 'I') {
-            if (typeof this.Log === 'function') this.Log('Alt + I keybind triggered.', LogLevel.info);
-            this.handleSecretCode();
+            this.showPasswordOverlay();
         }
     };
     window.addEventListener('keydown', this._altIListener);
