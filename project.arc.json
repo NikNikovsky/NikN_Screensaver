@@ -17,6 +17,6 @@
   "outFile": "NikN_Screensaver.arc",
   "payloadDir": "src",
   "devPort": 3128,
-  "buildHash": "bcb7e4ce",
+  "buildHash": "587def70",
   "noHotRelaunch": false
 }
