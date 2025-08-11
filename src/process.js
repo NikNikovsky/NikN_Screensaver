@@ -57,7 +57,7 @@ class proc extends ThirdPartyAppProcess {
     async initialize() {
         if (this._canUsePersistentHashing && this.fs && typeof this.fs.readFile === 'function') {
             try {
-               const configPath = 'U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash';
+                const configPath = 'U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash';
                 const file = await this.fs.readFile(configPath);
                 if (file) {
                     const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function'
@@ -83,48 +83,48 @@ class proc extends ThirdPartyAppProcess {
     _getUiBody() {
         return this.getBody();
     }
-_setupEventListeners() {
-    // Add a listener for the space key to show the password overlay
-    this._showOverlayListener = (e) => {
-        if (!this.unlocking && !this.unlocked && (e.code === 'Space' || e.key === ' ')) {
-            this.showPasswordOverlay();
-        }
-    };
-    window.addEventListener('keydown', this._showOverlayListener);
+    _setupEventListeners() {
+        // Add a listener for the space key to show the password overlay
+        this._showOverlayListener = (e) => {
+            if (!this.unlocking && !this.unlocked && (e.code === 'Space' || e.key === ' ')) {
+                this.showPasswordOverlay();
+            }
+        };
+        window.addEventListener('keydown', this._showOverlayListener);
 
-    // Register Alt+I accelerator using acceleratorStore
-    this.Log(`acceleratorStore state: ${this.acceleratorStore ? 'Available' : 'Unavailable'}`, 0); // LogLevel.info
-    this.Log(`Fallback listener state: ${this._secretCodeKeyListener ? 'Active' : 'Inactive'}`, 0); // LogLevel.info
-    if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
-        this.acceleratorStore.push({
-            alt: true,
-            key: "i",
-            action: (proc, event) => {
-                this.Log(`Alt+I triggered. _u: ${this._u}, _l: ${this._l}`, 0); // LogLevel.info
-                if (this._u === 0 && this._l === 0) {
+        // Register Alt+I accelerator using acceleratorStore
+        this.Log(`acceleratorStore state: ${this.acceleratorStore ? 'Available' : 'Unavailable'}`, 0); // LogLevel.info
+        this.Log(`Fallback listener state: ${this._secretCodeKeyListener ? 'Active' : 'Inactive'}`, 0); // LogLevel.info
+        if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
+            this.acceleratorStore.push({
+                alt: true,
+                key: "i",
+                action: (proc, event) => {
+                    this.Log(`Alt+I triggered. _u: ${this._u}, _l: ${this._l}`, 0); // LogLevel.info
+                    if (this._u === 0 && this._l === 0) {
+                        this.showSecretCodeInputOverlay();
+                    } else {
+                        this.Log("Alt+I conditions not met. Menu not opened.", 1); // LogLevel.warning
+                    }
+                },
+                global: true
+            });
+            this.Log("Registered Alt+I keyboard shortcut via acceleratorStore.", 0); // LogLevel.info
+        } else {
+            this.Log("acceleratorStore not available or not an array. Alt+I shortcut will not be registered.", 1); // LogLevel.warning
+            this._secretCodeKeyListener = (e) => {
+                this.Log(`Alt+I keydown event. _u: ${this._u}, _l: ${this._l}`, 0); // LogLevel.info
+                if (this._u === 0 && this._l === 0 && e.altKey && e.key === 'i') {
+                    e.preventDefault();
                     this.showSecretCodeInputOverlay();
                 } else {
                     this.Log("Alt+I conditions not met. Menu not opened.", 1); // LogLevel.warning
                 }
-            },
-            global: true
-        });
-        this.Log("Registered Alt+I keyboard shortcut via acceleratorStore.", 0); // LogLevel.info
-    } else {
-        this.Log("acceleratorStore not available or not an array. Alt+I shortcut will not be registered.", 1); // LogLevel.warning
-        this._secretCodeKeyListener = (e) => {
-            this.Log(`Alt+I keydown event. _u: ${this._u}, _l: ${this._l}`, 0); // LogLevel.info
-            if (this._u === 0 && this._l === 0 && e.altKey && e.key === 'i') {
-                e.preventDefault();
-                this.showSecretCodeInputOverlay();
-            } else {
-                this.Log("Alt+I conditions not met. Menu not opened.", 1); // LogLevel.warning
-            }
-        };
-        window.addEventListener('keydown', this._secretCodeKeyListener);
-        this.Log("Falling back to window.addEventListener for Alt+I due to missing acceleratorStore.", 1); // LogLevel.warning
+            };
+            window.addEventListener('keydown', this._secretCodeKeyListener);
+            this.Log("Falling back to window.addEventListener for Alt+I due to missing acceleratorStore.", 1); // LogLevel.warning
+        }
     }
-}
 
     // Loads settings from config file or defaults
     async _loadSettings() {
@@ -164,24 +164,24 @@ _setupEventListeners() {
         }
     }
 
-_showUserError(message) {
-    const body = this._getUiBody();
-    if (!body) return;
+    _showUserError(message) {
+        const body = this._getUiBody();
+        if (!body) return;
 
-    // Remove any existing error messages
-    let errorDiv = body.querySelector('#user-error-overlay');
-    if (errorDiv) errorDiv.remove();
+        // Remove any existing error messages
+        let errorDiv = body.querySelector('#user-error-overlay');
+        if (errorDiv) errorDiv.remove();
 
-    // Create a new error message
-    errorDiv = document.createElement('div');
-    errorDiv.id = 'user-error-overlay';
-    errorDiv.style = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;padding:16px 32px;border-radius:8px;z-index:30000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.2);font-family:Segoe UI,sans-serif;';
-    errorDiv.textContent = message;
-    body.appendChild(errorDiv);
+        // Create a new error message
+        errorDiv = document.createElement('div');
+        errorDiv.id = 'user-error-overlay';
+        errorDiv.style = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;padding:16px 32px;border-radius:8px;z-index:30000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.2);font-family:Segoe UI,sans-serif;';
+        errorDiv.textContent = message;
+        body.appendChild(errorDiv);
 
-    // Remove the error message after 3 seconds
-    setTimeout(() => { if (errorDiv.parentNode) errorDiv.remove(); }, 3000);
-}
+        // Remove the error message after 3 seconds
+        setTimeout(() => { if (errorDiv.parentNode) errorDiv.remove(); }, 3000);
+    }
 
     /**
      * Dynamically computes the SHA256 hashes of the hardcoded secret codes.
@@ -381,23 +381,23 @@ _showUserError(message) {
         };
     }
 
-showSecretCodeInputOverlay() {
-    if (this._s === 1) {
-        this.Log('Secret code input overlay is already active.', 1); // LogLevel.warning
-        return;
-    }
-    this._s = 1;
-    const body = this.getBody();
-    if (!body) {
-        this.Log('Failed to get body element. Cannot show secret code input overlay.', 2); // LogLevel.error
-        return;
-    }
+    showSecretCodeInputOverlay() {
+        if (this._s === 1) {
+            this.Log('Secret code input overlay is already active.', 1); // LogLevel.warning
+            return;
+        }
+        this._s = 1;
+        const body = this.getBody();
+        if (!body) {
+            this.Log('Failed to get body element. Cannot show secret code input overlay.', 2); // LogLevel.error
+            return;
+        }
 
 
-    this.Log('Creating secret code input overlay.', 0); // LogLevel.info
-    const inputOverlay = document.createElement('div');
-    inputOverlay.id = 'secret-code-input-overlay';
-    inputOverlay.innerHTML = `
+        this.Log('Creating secret code input overlay.', 0); // LogLevel.info
+        const inputOverlay = document.createElement('div');
+        inputOverlay.id = 'secret-code-input-overlay';
+        inputOverlay.innerHTML = `
         <div>
             <input id="secret-code-unlock-input" type="text" placeholder="Enter secret code" autofocus />
             <button id="unlock-secret-code-btn">Unlock</button>
@@ -405,55 +405,55 @@ showSecretCodeInputOverlay() {
         </div>
     `
 
-    body.appendChild(inputOverlay);
-    this.Log('Secret code input overlay appended to body.', 0); // LogLevel.info
+        body.appendChild(inputOverlay);
+        this.Log('Secret code input overlay appended to body.', 0); // LogLevel.info
 
-    const secretCodeInput = inputOverlay.querySelector('#secret-code-unlock-input');
-    const unlockSecretCodeBtn = inputOverlay.querySelector('#unlock-secret-code-btn');
-    const errorDiv = inputOverlay.querySelector('#secret-code-unlock-error');
+        const secretCodeInput = inputOverlay.querySelector('#secret-code-unlock-input');
+        const unlockSecretCodeBtn = inputOverlay.querySelector('#unlock-secret-code-btn');
+        const errorDiv = inputOverlay.querySelector('#secret-code-unlock-error');
 
-    if (!secretCodeInput || !unlockSecretCodeBtn || !errorDiv) {
-        this.Log('Failed to find required elements in the secret code input overlay.', 2); // LogLevel.error
-        return;
-    }
-
-    unlockSecretCodeBtn.onclick = async () => {
-        const code = secretCodeInput.value;
-        errorDiv.style.display = 'none';
-
-        if (!code) {
-            errorDiv.textContent = 'Please enter a code.';
-            errorDiv.style.display = 'block';
+        if (!secretCodeInput || !unlockSecretCodeBtn || !errorDiv) {
+            this.Log('Failed to find required elements in the secret code input overlay.', 2); // LogLevel.error
             return;
         }
 
-        try {
-            if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
-                const enteredCodeHash = await util.sha256(code);
-                this.Log(`Entered code hash: ${enteredCodeHash}`, 0); // LogLevel.info
+        unlockSecretCodeBtn.onclick = async () => {
+            const code = secretCodeInput.value;
+            errorDiv.style.display = 'none';
 
-                if (this._computedSecretCodeHashes.includes(enteredCodeHash)) {
-                    this.Log('Secret code accepted.', 0); // LogLevel.info
-                    inputOverlay.remove();
-                    this._s = 0;
-                    this._l = 1; // Unlock the app
-                    return;
-                }
-            } else {
-                this.Log('util.sha256 is not available. Cannot validate secret codes.', 1); // LogLevel.warning
+            if (!code) {
+                errorDiv.textContent = 'Please enter a code.';
+                errorDiv.style.display = 'block';
+                return;
             }
-        } catch (e) {
-            this.Log(`Error validating secret code: ${e.message}`, 2); // LogLevel.error
-        }
 
-        errorDiv.textContent = 'Invalid secret code.';
-        errorDiv.style.display = 'block';
-    };
+            try {
+                if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
+                    const enteredCodeHash = await util.sha256(code);
+                    this.Log(`Entered code hash: ${enteredCodeHash}`, 0); // LogLevel.info
 
-    secretCodeInput.onkeydown = (e) => {
-        if (e.key === 'Enter') unlockSecretCodeBtn.click();
-    };
-}
+                    if (this._computedSecretCodeHashes.includes(enteredCodeHash)) {
+                        this.Log('Secret code accepted.', 0); // LogLevel.info
+                        inputOverlay.remove();
+                        this._s = 0;
+                        this._l = 1; // Unlock the app
+                        return;
+                    }
+                } else {
+                    this.Log('util.sha256 is not available. Cannot validate secret codes.', 1); // LogLevel.warning
+                }
+            } catch (e) {
+                this.Log(`Error validating secret code: ${e.message}`, 2); // LogLevel.error
+            }
+
+            errorDiv.textContent = 'Invalid secret code.';
+            errorDiv.style.display = 'block';
+        };
+
+        secretCodeInput.onkeydown = (e) => {
+            if (e.key === 'Enter') unlockSecretCodeBtn.click();
+        };
+    }
 
     /**
      * Displays the password entry overlay for unlocking the screen.
@@ -986,10 +986,10 @@ showSecretCodeInputOverlay() {
         }
     }
 
-handleSecretCode() {
-    this.Log('Handling secret code logic.', 0); // LogLevel.info
-    // Add logic for handling secret codes here
-    // For now, just log the event
+    handleSecretCode() {
+        this.Log('Handling secret code logic.', 0); // LogLevel.info
+        // Add logic for handling secret codes here
+        // For now, just log the event
     }
 }
 
