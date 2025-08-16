@@ -134,6 +134,7 @@ class proc extends ThirdPartyAppProcess {
      */
     async render() {
         var body = this.getBody();
+        await this._loadSettingsConfig();
         if (!body) return;
         body.innerHTML = htmlContent;
 
@@ -1016,7 +1017,7 @@ class proc extends ThirdPartyAppProcess {
                 speed,
                 colorScheme
             };
-            await this._saveSettings();
+            await this._saveSettingsConfig();
             modal.remove();
             this.startFlurryAnimation();
         };
