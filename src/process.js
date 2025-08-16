@@ -9,32 +9,48 @@ var htmlContent = `
 // Hardcoded obfuscated parts for secret easter egg codes.
 // These parts are reassembled from character codes.
 var HARDCODED_SECRET_CODE_PARTS = [
-    [[99, 101, 114, 116, 105, 102, 105, 99, 97, 116, 101, 115]], // certificates
-    [[109, 97, 116, 114, 105, 120]], // matrix
-    [[112, 108, 101, 97, 115, 101, 114, 101, 115, 101, 116, 109, 121, 112, 97, 115, 115, 119, 111, 114, 100, 98, 101, 99, 97, 117, 115, 101, 105, 102, 111, 114, 103, 111, 114]], // pleasereetmypasswordbecauseiforgor
-    [[103, 111, 111, 115, 101]] // goose
+    [[99, 101, 114, 116], [105, 102, 105], [99, 97, 116, 101, 115]], 
+    [[109, 97, 116], [114], [105, 120]],                              
+    [[112, 108, 101, 97, 115, 101, 114, 101, 115, 101, 116, 109, 121, 112, 97, 115, 115, 119, 111, 114, 100, 98, 101, 99, 97, 117, 115, 101, 105, 102, 111, 114, 103, 111, 114]]
 ];
 
 // Special marker to indicate that the password should be reset on next startup
 var RESET_PASSWORD_MARKER = "__ARC_OS_LOCKSCREEN_RESET__";
 
+// ArcOS LogLevel enum values (from logging.pdf)
+var LogLevel = {
+    info: 0,
+    warning: 1,
+    error: 2,
+    critical: 3
+};
+
 // This class extends ThirdPartyAppProcess, which is assumed to provide
 // methods like getBody(), userPreferences(), userDaemon, handler, closeWindow.
 class proc extends ThirdPartyAppProcess {
-    // Corrected constructor and other methods to be inside the class body
-    constructor(...args) {
-        super(...args);
-        this._canUsePersistentHashing = false; // Determined during constructor/render
-        this._localPassword = null;
-        this._localPasswordHash = null;
-        this._lockScreenPasswordFilePath = 'U:/Config/NikN_Screensaver/lockscreen.pwd.hash';
-        // REPLACE WHEN 7.0.5 RELEASES:const configPath = 'U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash'
-        this._computedSecretCodeHashes = [];
-        this._u = 0; // lock overlay active
-        this._s = 0; // secret code overlay active
-        this._l = 0; // unlocked status
-        this._m = 0; // matrix effect active
-        this._disposed = false;
+    constructor(handler, pid, parentPid, app, workingDirectory, ...args) {
+        super(handler, pid, parentPid, app, workingDirectory);
+        // Obfuscated boolean flags: 0 for false, 1 for true
+        this._u = 0; // Flag to indicate if the password overlay is active 
+        this._l = 0;  // Flag to indicate if the app is unlocked 
+        this.profilePicture = null; // User's profile picture URL
+        this.displayName = null;    // User's display name
+        this._showOverlayListener = null; // Listener for space key
+
+        this._localPasswordHash = null; // Stores SHA256 hash if persistent storage is used for main password
+        this._localPassword = null;     // Stores plaintext password in-memory if persistent storage fails for main password
+
+        this._s = 0; // Flag for secret code input overlay state 
+        this._computedSecretCodeHashes = []; // Stores dynamically computed hashes of codes
+        this._m = 0; // New flag to control effect animation 
+        this._effectTimeout = null; // Timeout ID for effect auto-dismiss 
+        this._effectDismissListener = null; // Listener for dismissing effect 
+
+        // Define file path for the main lock screen password within the app's working directory
+        this._lockScreenPasswordFilePath = `U:/Config/NikN_Screensaver/lockscreen.pwd.hash`
+        if (typeof this.Log === 'function') this.Log("Lock screen password file path set to: " + this._lockScreenPasswordFilePath, LogLevel.info);
+
+        this._h = 0; // Determined during constructor/render 
 
         // --- Initial Feature Detection for Persistent Hashing ---
         try {
@@ -42,145 +58,46 @@ class proc extends ThirdPartyAppProcess {
                 typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' && typeof convert.textToBlob === 'function' &&
                 this.fs && typeof this.fs.readFile === 'function' && typeof this.fs.writeFile === 'function') {
 
-                this._canUsePersistentHashing = true;
+                this._h = 1;
                 if (typeof this.Log === 'function') this.Log("Persistent hashing and file system operations are initially detected as available.", LogLevel.info);
             } else {
                 if (typeof this.Log === 'function') this.Log("Initial check: Some core utilities for persistent hashing are not fully available. Will fall back to in-memory password storage.", LogLevel.warning);
+                if (typeof util === 'undefined' || typeof util.sha256 !== 'function') if (typeof this.Log === 'function') this.Log("  - util.sha256 missing or not a function.", LogLevel.warning);
+                if (typeof convert === 'undefined' || typeof convert.arrayToText !== 'function' || typeof convert.textToBlob !== 'function') if (typeof this.Log === 'function') this.Log("  - convert.arrayToText or convert.textToBlob missing or not a function.", LogLevel.warning);
+                if (!this.fs || typeof this.fs.readFile !== 'function' || typeof this.fs.writeFile !== 'function') if (typeof this.Log === 'function') this.Log("  - this.fs or its readFile/writeFile methods missing or not functions.", LogLevel.warning);
             }
         } catch (e) {
             if (typeof this.Log === 'function') this.Log("Error during initial utility check for persistent hashing: " + e.message, LogLevel.error);
-            this._canUsePersistentHashing = false; // Ensure it's false on any error
+            this._h = 0;
         }
-    }
 
-    // Call this method after instantiating proc to perform async initialization.
-    async initialize() {
-        if (this._canUsePersistentHashing && this.fs && typeof this.fs.readFile === 'function') {
-            try {
-                const configPath = 'U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash';
-                const file = await this.fs.readFile(configPath);
-                if (file) {
-                    const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function'
-                        ? convert.arrayToText(new Uint8Array(file))
-                        : new TextDecoder().decode(new Uint8Array(file));
-                    if (text === RESET_PASSWORD_MARKER) {
-                        this._localPasswordHash = null;
-                        if (typeof this.Log === 'function') this.Log("Lock screen password reset marker found. Prompting for new password.", LogLevel.info);
-                    } else {
-                        this._localPasswordHash = text;
-                        if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
-                    }
-                } else {
-                    this._localPasswordHash = null;
-                }
-            } catch (e) {
-                if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file: " + e.message, LogLevel.warning);
-                this._localPasswordHash = null;
-            }
-        }
-    }
+        // --- Dynamically compute secret code hashes on startup ---
+        this._computeSecretCodeHashes();
 
-    _getUiBody() {
-        return this.getBody();
-    }
-    _setupEventListeners() {
-        // Add a listener for the space key to show the password overlay
-        this._showOverlayListener = (e) => {
-            if (!this.unlocking && !this.unlocked && (e.code === 'Space' || e.key === ' ')) {
-                this.showPasswordOverlay();
-            }
-        };
-        window.addEventListener('keydown', this._showOverlayListener);
-
-        // Register Alt+I accelerator using acceleratorStore
-        this.Log(`acceleratorStore state: ${this.acceleratorStore ? 'Available' : 'Unavailable'}`, 0); // LogLevel.info
-        this.Log(`Fallback listener state: ${this._secretCodeKeyListener ? 'Active' : 'Inactive'}`, 0); // LogLevel.info
+        // --- Registering Alt+I accelerator using acceleratorStore ---
         if (this.acceleratorStore && Array.isArray(this.acceleratorStore)) {
             this.acceleratorStore.push({
                 alt: true,
                 key: "i",
                 action: (proc, event) => {
-                    this.Log(`Alt+I triggered. _u: ${this._u}, _l: ${this._l}`, 0); // LogLevel.info
                     if (this._u === 0 && this._l === 0) {
                         this.showSecretCodeInputOverlay();
-                    } else {
-                        this.Log("Alt+I conditions not met. Menu not opened.", 1); // LogLevel.warning
                     }
                 },
                 global: true
             });
-            this.Log("Registered Alt+I keyboard shortcut via acceleratorStore.", 0); // LogLevel.info
+            if (typeof this.Log === 'function') this.Log("Registered Alt+I keyboard shortcut via acceleratorStore.", LogLevel.info);
         } else {
-            this.Log("acceleratorStore not available or not an array. Alt+I shortcut will not be registered.", 1); // LogLevel.warning
+            if (typeof this.Log === 'function') this.Log("acceleratorStore not available or not an array. Alt+I shortcut will not be registered.", LogLevel.warning);
             this._secretCodeKeyListener = (e) => {
-                this.Log(`Alt+I keydown event. _u: ${this._u}, _l: ${this._l}`, 0); // LogLevel.info
                 if (this._u === 0 && this._l === 0 && e.altKey && e.key === 'i') {
                     e.preventDefault();
                     this.showSecretCodeInputOverlay();
-                } else {
-                    this.Log("Alt+I conditions not met. Menu not opened.", 1); // LogLevel.warning
                 }
             };
             window.addEventListener('keydown', this._secretCodeKeyListener);
-            this.Log("Falling back to window.addEventListener for Alt+I due to missing acceleratorStore.", 1); // LogLevel.warning
+            if (typeof this.Log === 'function') this.Log("Falling back to window.addEventListener for Alt+I due to missing acceleratorStore.", LogLevel.warning);
         }
-    }
-
-    // Loads settings from config file or defaults
-    async _loadSettings() {
-        const defaultSettings = {
-            numCurves: 12,
-            pointsPerCurve: 10,
-            speed: 1.2,
-            colorScheme: 'default',
-        };
-        this._settings = defaultSettings;
-        try {
-            if (this.fs && typeof this.fs.readFile === 'function') {
-                const configPath = 'U:/System/Config/NikN_Screensaver/screensaver.json';
-                const file = await this.fs.readFile(configPath);
-                if (file) {
-                    const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' ? convert.arrayToText(new Uint8Array(file)) : new TextDecoder().decode(new Uint8Array(file));
-                    const parsed = JSON.parse(text);
-                    this._settings = Object.assign({}, defaultSettings, parsed);
-                }
-            }
-        } catch (e) {
-            if (typeof this.Log === 'function') this.Log('Could not load screensaver settings: ' + e.message, LogLevel.warning);
-        }
-    }
-
-    // Saves settings to config file
-    async _saveSettings() {
-        try {
-            if (this.fs && typeof this.fs.writeFile === 'function') {
-                const configPath = 'U:/System/Config/NikN_Screensaver/screensaver.json';
-                const json = JSON.stringify(this._settings);
-                const blob = typeof convert !== 'undefined' && typeof convert.textToBlob === 'function' ? convert.textToBlob(json, 'application/json') : new Blob([json], { type: 'application/json' });
-                await this.fs.writeFile(configPath, blob);
-            }
-        } catch (e) {
-            if (typeof this.Log === 'function') this.Log('Could not save screensaver settings: ' + e.message, LogLevel.error);
-        }
-    }
-
-    _showUserError(message) {
-        const body = this._getUiBody();
-        if (!body) return;
-
-        // Remove any existing error messages
-        let errorDiv = body.querySelector('#user-error-overlay');
-        if (errorDiv) errorDiv.remove();
-
-        // Create a new error message
-        errorDiv = document.createElement('div');
-        errorDiv.id = 'user-error-overlay';
-        errorDiv.style = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;padding:16px 32px;border-radius:8px;z-index:30000;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,0.2);font-family:Segoe UI,sans-serif;';
-        errorDiv.textContent = message;
-        body.appendChild(errorDiv);
-
-        // Remove the error message after 3 seconds
-        setTimeout(() => { if (errorDiv.parentNode) errorDiv.remove(); }, 3000);
     }
 
     /**
@@ -207,22 +124,22 @@ class proc extends ThirdPartyAppProcess {
             if (typeof this.Log === 'function') this.Log("Dynamically computed secret code hashes.", LogLevel.info);
         } else {
             if (typeof this.Log === 'function') this.Log("util.sha256 not available. Secret codes will not be functional.", LogLevel.warning);
-            this._computedSecretCodeHashes = [];
+            this._computedSecretCodeHashes = []; // Ensure it's empty if hashing is not available
         }
     }
 
     /**
-     * Initial application UI.
+     * Renders the initial application UI.
+     * It sets up the lock screen, checks for password existence, and starts the animation.
      */
     async render() {
-        await this._loadSettings();
-        const body = this.getBody();
+        var body = this.getBody();
         if (!body) return;
         body.innerHTML = htmlContent;
 
-        // Try to get user info
+        // Try to get user info (profile picture and display name)
         try {
-            const prefs = this.userPreferences && typeof this.userPreferences === 'function' ? this.userPreferences() : null;
+            var prefs = this.userPreferences && typeof this.userPreferences === 'function' ? this.userPreferences() : null;
             if (prefs && prefs.account) {
                 this.displayName = prefs.account.displayName || 'User';
                 this.profilePicture = prefs.account.profilePicture || null;
@@ -237,47 +154,71 @@ class proc extends ThirdPartyAppProcess {
         }
 
         // Attempt to load the hashed lock screen password from file
-        if (this._canUsePersistentHashing && this._lockScreenPasswordFilePath) {
+        if (this._h === 1 && this._lockScreenPasswordFilePath) {
             try {
-                const fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
+                var fileContent = await this.fs.readFile(this._lockScreenPasswordFilePath);
                 if (fileContent) {
-                    this._localPasswordHash = convert.arrayToText(new Uint8Array(fileContent));
-                    if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
+                    var loadedContent = convert.arrayToText(new Uint8Array(fileContent));
+                    if (loadedContent === RESET_PASSWORD_MARKER) {
+                        this._localPasswordHash = null; // Treat as no password set
+                        if (typeof this.Log === 'function') this.Log("Lock screen password reset marker found. Prompting for new password.", LogLevel.info);
+                    } else {
+                        this._localPasswordHash = loadedContent;
+                        if (typeof this.Log === 'function') this.Log("Loaded hashed lock screen password from file.", LogLevel.info);
+                    }
+                } else {
+                    this._localPasswordHash = null; // File doesn't exist or is empty
                 }
             } catch (e) {
-                if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file: " + e.message, LogLevel.warning);
+                if (typeof this.Log === 'function') this.Log("Failed to read lock screen password file (expected on first run or if file corrupted, or fs error): " + e.message, LogLevel.warning);
                 this._localPasswordHash = null;
-                this._canUsePersistentHashing = false; // Disable persistent hashing on read error
             }
         }
 
+        // --- Dynamically compute secret code hashes on render, after util is confirmed ---
+        await this._computeSecretCodeHashes();
+
         // Determine if a password already exists (either hashed or in-memory)
-        const passwordExists = this._canUsePersistentHashing ? !!this._localPasswordHash : !!this._localPassword;
+        var passwordExists = this._h === 1 ? !!this._localPasswordHash : !!this._localPassword;
 
         if (!passwordExists) {
+            // If no lock screen password is set, show the setup dialog
             this.showSetPasswordDialog();
         } else {
+            // Otherwise, show the normal password overlay
             this.showPasswordOverlay();
         }
 
+        // Listen for space key to show password overlay
+        this._showOverlayListener = (e) => {
+            if (this._u === 0 && this._l === 0 && (e.code === 'Space' || e.key === ' ')) {
+                this.showPasswordOverlay();
+            }
+        };
+        window.addEventListener('keydown', this._showOverlayListener);
+
+        // Start the Flurry-style animation
         this.startFlurryAnimation();
     }
 
+    /**
+     * Handles the application closing event.
+     * Prevents closing unless the app is unlocked.
+     * @returns {boolean} True if the app can close, false otherwise.
+     */
     async onClose() {
         if (this._l === 1) {
-            return true; // Allow closing if unlocked
+            return true;
         }
-
+        // Ensure we don't show multiple overlays if one is already active
         if (this._u === 0 && this._s === 0) {
             this.showPasswordOverlay();
         }
-
-        this.Log('Attempt to close app while locked.', 1); // LogLevel.warning
-        return false; // Block closing if locked
+        return false;
     }
 
     /**
-     * Displays a dialog for the user to set their password for the first time.
+     * Displays a dialog for the user to set their lock screen password for the first time.
      */
     showSetPasswordDialog() {
         var body = this.getBody();
@@ -344,7 +285,7 @@ class proc extends ThirdPartyAppProcess {
             }
 
             try {
-                if (this._canUsePersistentHashing && this._lockScreenPasswordFilePath) {
+                if (this._h === 1 && this._lockScreenPasswordFilePath) {
                     try {
                         var hashedPassword = await util.sha256(newPassword);
                         this._localPasswordHash = hashedPassword;
@@ -355,7 +296,7 @@ class proc extends ThirdPartyAppProcess {
                         if (typeof this.Log === 'function') this.Log("Hashed lock screen password saved to file: " + this._lockScreenPasswordFilePath, LogLevel.info);
                     } catch (e) {
                         if (typeof this.Log === 'function') this.Log("Error during persistent password setup (hashing or file write): " + e.message, LogLevel.error);
-                        this._canUsePersistentHashing = false;
+                        this._h = 0;
                         this._localPassword = newPassword;
                     }
                 } else {
@@ -373,393 +314,622 @@ class proc extends ThirdPartyAppProcess {
             }
         };
 
-        newPasswordInput.onkeydown = (e) => {
-            if (e.key === 'Enter') setPasswordBtn.click();
-        };
-        confirmPasswordInput.onkeydown = (e) => {
-            if (e.key === 'Enter') setPasswordBtn.click();
-        };
-    }
-
-    // showSecretCodeInputOverlay — call this when Alt+I is triggered
-    async showSecretCodeInputOverlay() {
-      if (this._s) return;
-      this._s = 1;
-      try {
-        // ensure hashes are computed
-        if (!Array.isArray(this._computedSecretCodeHashes) || this._computedSecretCodeHashes.length === 0) {
-          if (typeof this._computeSecretCodeHashes === 'function') {
-            await this._computeSecretCodeHashes();
-          } else {
-            this.Log && this.Log('warn', 'No _computeSecretCodeHashes available');
-          }
-        }
-
-        const body = this.getBody();
-        const overlay = document.createElement('div');
-        overlay.style.position = 'fixed';
-        overlay.style.left = '0';
-        overlay.style.top = '0';
-        overlay.style.width = '100%';
-        overlay.style.height = '100%';
-        overlay.style.display = 'flex';
-        overlay.style.alignItems = 'center';
-        overlay.style.justifyContent = 'center';
-        overlay.style.background = 'rgba(0,0,0,0.6)';
-        overlay.style.zIndex = '99999';
-        overlay.id = 'secret-code-overlay';
-
-        const card = document.createElement('div');
-        card.style.background = '#111';
-        card.style.color = '#fff';
-        card.style.padding = '20px';
-        card.style.borderRadius = '8px';
-        card.style.boxShadow = '0 10px 30px rgba(0,0,0,0.6)';
-        card.style.minWidth = '320px';
-        card.style.maxWidth = '90%';
-        card.style.textAlign = 'center';
-        card.style.fontFamily = 'sans-serif';
-
-        const title = document.createElement('div');
-        title.textContent = 'Enter Secret Code';
-        title.style.fontSize = '18px';
-        title.style.marginBottom = '12px';
-
-        const input = document.createElement('input');
-        input.type = 'password';
-        input.placeholder = 'Secret code';
-        input.style.width = '100%';
-        input.style.padding = '10px';
-        input.style.borderRadius = '4px';
-        input.style.border = '1px solid #333';
-        input.style.background = '#222';
-        input.style.color = '#fff';
-        input.autofocus = true;
-
-        const error = document.createElement('div');
-        error.style.color = '#ff6b6b';
-        error.style.fontSize = '13px';
-        error.style.height = '18px';
-        error.style.marginTop = '8px';
-
-        const btnRow = document.createElement('div');
-        btnRow.style.display = 'flex';
-        btnRow.style.gap = '8px';
-        btnRow.style.marginTop = '12px';
-        btnRow.style.justifyContent = 'center';
-
-        const unlockBtn = document.createElement('button');
-        unlockBtn.textContent = 'Unlock';
-        unlockBtn.style.padding = '8px 12px';
-        unlockBtn.style.border = 'none';
-        unlockBtn.style.borderRadius = '4px';
-        unlockBtn.style.background = '#2ecc71';
-        unlockBtn.style.color = '#000';
-        unlockBtn.style.cursor = 'pointer';
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.textContent = 'Cancel';
-        cancelBtn.style.padding = '8px 12px';
-        cancelBtn.style.border = 'none';
-        cancelBtn.style.borderRadius = '4px';
-        cancelBtn.style.background = '#aaa';
-        cancelBtn.style.color = '#000';
-        cancelBtn.style.cursor = 'pointer';
-
-        btnRow.appendChild(unlockBtn);
-        btnRow.appendChild(cancelBtn);
-
-        card.appendChild(title);
-        card.appendChild(input);
-        card.appendChild(error);
-        card.appendChild(btnRow);
-        overlay.appendChild(card);
-        body.appendChild(overlay);
-
-        const cleanup = () => {
-          try { overlay.remove(); } catch (e) {}
-          this._s = 0;
-          window.removeEventListener('keydown', onKey);
-        };
-
-        const showError = (msg) => {
-          error.textContent = msg || 'Invalid code';
-          setTimeout(() => { error.textContent = ''; }, 2200);
-        };
-
-        const handleUnlock = async () => {
-          const val = (input.value || '').trim();
-          if (!val) {
-            showError('Enter a code');
-            return;
-          }
-
-          // compute hash
-          let hash;
-          try {
-            const blob = (typeof convert !== 'undefined' && convert.textToBlob)
-              ? convert.textToBlob(val)
-              : new Blob([val], { type: 'text/plain' });
-            hash = await util.sha256(blob);
-          } catch (e) {
-            this.Log && this.Log('error', 'sha256 failed', e);
-            showError('Hash error');
-            return;
-          }
-
-          // compare
-          const hashes = Array.isArray(this._computedSecretCodeHashes) ? this._computedSecretCodeHashes : [];
-          const idx = hashes.indexOf(hash);
-          if (idx === -1) {
-            showError('Wrong code');
-            return;
-          }
-
-          // matched code actions
-          try {
-            if (idx === 0) {
-              // show certificate images
-              await this.showImageDisplayOverlay && this.showImageDisplayOverlay('./egg/cert1.png', './egg/cert2.png');
-            } else if (idx === 1) {
-              // start matrix effect
-              this._startEffectM && this._startEffectM();
-            } else if (idx === 2) {
-              // reset marker + logoff
-              const ok = await (this.showConfirmationPrompt ? this.showConfirmationPrompt('Reset password and log off?') : Promise.resolve(false));
-              if (ok) {
-                const marker = (typeof RESET_PASSWORD_MARKER !== 'undefined') ? RESET_PASSWORD_MARKER : 'RESET_PASSWORD_MARKER';
-                try {
-                  if (this.fs && this.fs.writeFile) {
-                    await this.fs.writeFile(this._lockScreenPasswordFilePath || '/.lockscreen', convert ? convert.textToBlob(marker) : new Blob([marker], { type: 'text/plain' }));
-                  }
-                } catch (e) {
-                  this.Log && this.Log('warn', 'Failed writing reset marker', e);
-                }
-                // logoff if available
-                userDaemon && userDaemon.logoff && userDaemon.logoff();
-              }
-            } else {
-              // general unlock
-              this._l = 1;
-            }
-          } catch (e) {
-            this.Log && this.Log('error', 'secret-action failed', e);
-          }
-
-          cleanup();
-        };
-
-        const onKey = (ev) => {
-          if (ev.key === 'Escape') {
-            ev.preventDefault();
-            cleanup();
-          } else if (ev.key === 'Enter') {
-            ev.preventDefault();
-            handleUnlock();
-          }
-        };
-
-        window.addEventListener('keydown', onKey);
-        unlockBtn.addEventListener('click', handleUnlock);
-        cancelBtn.addEventListener('click', cleanup);
-
-        input.focus();
-      } catch (err) {
-        this.Log && this.Log('error', 'showSecretCodeInputOverlay error', err);
-        this._s = 0;
-      }
-    }
-
-    // Minimal helper: showImageDisplayOverlay
-    async showImageDisplayOverlay(img1, img2) {
-      try {
-        const body = this.getBody();
-        const ov = document.createElement('div');
-        ov.style.position = 'fixed';
-        ov.style.left = '0';
-        ov.style.top = '0';
-        ov.style.width = '100%';
-        ov.style.height = '100%';
-        ov.style.display = 'flex';
-        ov.style.alignItems = 'center';
-        ov.style.justifyContent = 'center';
-        ov.style.background = 'rgba(0,0,0,0.85)';
-        ov.style.zIndex = '100000';
-
-        const wrapper = document.createElement('div');
-        wrapper.style.display = 'flex';
-        wrapper.style.gap = '12px';
-        wrapper.style.maxWidth = '90%';
-        wrapper.style.maxHeight = '90%';
-
-        const i1 = document.createElement('img');
-        i1.src = img1;
-        i1.style.maxWidth = '45vw';
-        i1.style.maxHeight = '80vh';
-        i1.style.objectFit = 'contain';
-
-        const i2 = document.createElement('img');
-        i2.src = img2;
-        i2.style.maxWidth = '45vw';
-        i2.style.maxHeight = '80vh';
-        i2.style.objectFit = 'contain';
-
-        wrapper.appendChild(i1);
-        wrapper.appendChild(i2);
-
-        const closeBtn = document.createElement('button');
-        closeBtn.textContent = 'Close';
-        closeBtn.style.position = 'absolute';
-        closeBtn.style.right = '18px';
-        closeBtn.style.top = '18px';
-        closeBtn.style.padding = '8px 12px';
-        closeBtn.style.border = 'none';
-        closeBtn.style.borderRadius = '4px';
-        closeBtn.style.cursor = 'pointer';
-
-        ov.appendChild(wrapper);
-        ov.appendChild(closeBtn);
-        body.appendChild(ov);
-
-        const cleanup = () => { try { ov.remove(); } catch (e) {} };
-
-        closeBtn.addEventListener('click', cleanup);
-        ov.addEventListener('click', (e) => { if (e.target === ov) cleanup(); });
-      } catch (e) {
-        this.Log && this.Log('error', 'showImageDisplayOverlay failed', e);
-      }
-    }
-
-    // Minimal confirmation prompt returning Promise<boolean>
-    showConfirmationPrompt(message) {
-      return new Promise((resolve) => {
-        try {
-          const body = this.getBody();
-          const ov = document.createElement('div');
-          ov.style.position = 'fixed';
-          ov.style.left = '0';
-          ov.style.top = '0';
-          ov.style.width = '100%';
-          ov.style.height = '100%';
-          ov.style.display = 'flex';
-          ov.style.alignItems = 'center';
-          ov.style.justifyContent = 'center';
-          ov.style.background = 'rgba(0,0,0,0.6)';
-          ov.style.zIndex = '200000';
-
-          const card = document.createElement('div');
-          card.style.background = '#111';
-          card.style.color = '#fff';
-          card.style.padding = '16px';
-          card.style.borderRadius = '8px';
-          card.style.minWidth = '300px';
-          card.style.textAlign = 'center';
-
-          const t = document.createElement('div');
-          t.textContent = message || 'Confirm?';
-          t.style.marginBottom = '12px';
-
-          const row = document.createElement('div');
-          row.style.display = 'flex';
-          row.style.gap = '8px';
-          row.style.justifyContent = 'center';
-
-          const yes = document.createElement('button');
-          yes.textContent = 'Yes';
-          yes.style.padding = '8px 12px';
-          yes.style.background = '#2ecc71';
-          yes.style.border = 'none';
-          yes.style.cursor = 'pointer';
-
-          const no = document.createElement('button');
-          no.textContent = 'No';
-          no.style.padding = '8px 12px';
-          no.style.background = '#aaa';
-          no.style.border = 'none';
-          no.style.cursor = 'pointer';
-
-          row.appendChild(yes);
-          row.appendChild(no);
-          card.appendChild(t);
-          card.appendChild(row);
-          ov.appendChild(card);
-          body.appendChild(ov);
-
-          const cleanup = (res) => { try { ov.remove(); } catch (e) {} resolve(res); };
-
-          yes.addEventListener('click', () => cleanup(true));
-          no.addEventListener('click', () => cleanup(false));
-        } catch (e) {
-          this.Log && this.Log('error', 'showConfirmationPrompt error', e);
-          resolve(false);
-        }
-      });
-    }
-
-    // Minimal Matrix-like effect starters (non-blocking)
-    _startEffectM() {
-      if (this._m) return;
-      this._m = 1;
-      try {
-        const body = this.getBody();
-        const canvas = document.createElement('canvas');
-        canvas.id = 'matrix-effect-canvas';
-        canvas.style.position = 'fixed';
-        canvas.style.left = '0';
-        canvas.style.top = '0';
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
-        canvas.style.zIndex = '99998';
-        canvas.style.pointerEvents = 'none';
-        body.appendChild(canvas);
-
-        const ctx = canvas.getContext('2d');
-        const resize = () => {
-          canvas.width = window.innerWidth;
-          canvas.height = window.innerHeight;
-        };
-        resize();
-        window.addEventListener('resize', resize);
-
-        const cols = Math.floor(canvas.width / 14);
-        const drops = Array.from({ length: cols }, () => 1);
-
-        const tick = () => {
-          if (!this._m) return;
-          ctx.fillStyle = 'rgba(0,0,0,0.05)';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = '#0f0';
-          ctx.font = '12px monospace';
-          for (let i = 0; i < drops.length; i++) {
-            const text = String.fromCharCode(0x30A0 + Math.random() * 96);
-            ctx.fillText(text, i * 14, drops[i] * 14);
-            if (drops[i] * 14 > canvas.height && Math.random() > 0.975) drops[i] = 0;
-            drops[i]++;
-          }
-          this._mAnim = requestAnimationFrame(tick);
-        };
-        this._mAnim = requestAnimationFrame(tick);
-
-        // store cleanup
-        this._stopEffectM = () => {
-          this._m = 0;
-          try {
-            cancelAnimationFrame(this._mAnim);
-          } catch (e) {}
-          try { canvas.remove(); } catch (e) {}
-          window.removeEventListener('resize', resize);
-        };
-      } catch (e) {
-        this.Log && this.Log('error', '_startEffectM failed', e);
-        this._m = 0;
-      }
+        newPasswordInput.onkeydown = (e) => { if (e.key === 'Enter') setPasswordBtn.click(); };
+        confirmPasswordInput.onkeydown = (e) => { if (e.key === 'Enter') setPasswordBtn.click(); };
     }
 
     /**
-     * Stops the special effect and cleans up.
+     * Displays an overlay for the user to input a secret code to unlock.
+     * Triggered by Alt+I. This validates against hardcoded secret codes.
+     */
+    showSecretCodeInputOverlay() {
+        if (this._s === 1) return;
+        this._s = 1;
+        var body = this.getBody();
+        if (!body) return;
+
+        // If the main password overlay is active, remove it before showing secret code overlay
+        var mainOverlay = body.querySelector('#lock-overlay');
+        if (mainOverlay) {
+            mainOverlay.remove();
+            this._u = 0; // Reset main overlay flag
+        }
+
+        var inputOverlay = document.createElement('div');
+        inputOverlay.id = 'secret-code-input-overlay';
+        inputOverlay.style = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+        `;
+        inputOverlay.innerHTML = `
+            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+                <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 24px;"></div> <!-- Title is blank -->
+                <input id="secret-code-unlock-input" type="text" placeholder=""
+                       style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
+                       onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
+                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                    <button id="unlock-secret-code-btn"
+                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                            onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
+                        Unlock
+                    </button>
+                    <button id="cancel-secret-code-unlock-btn"
+                            style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                            onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
+                        Cancel
+                    </button>
+                </div>
+                <div id="secret-code-unlock-error" style="color: #f87171; margin-top: 12px; font-size: 14px; display: none;"></div>
+            </div>
+        `;
+        body.appendChild(inputOverlay);
+
+        var secretCodeInput = inputOverlay.querySelector('#secret-code-unlock-input');
+        var unlockSecretCodeBtn = inputOverlay.querySelector('#unlock-secret-code-btn');
+        var cancelBtn = inputOverlay.querySelector('#cancel-secret-code-unlock-btn');
+        var errorDiv = inputOverlay.querySelector('#secret-code-unlock-error');
+
+        if (!secretCodeInput || !unlockSecretCodeBtn || !cancelBtn || !errorDiv) return;
+
+        unlockSecretCodeBtn.onclick = async () => {
+            var code = secretCodeInput.value;
+            errorDiv.style.display = 'none';
+
+            if (code.length === 0) {
+                errorDiv.textContent = 'Input a code.'; 
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            var unlockedBySecretCode = 0;
+            try {
+                if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
+                    var enteredCodeHash = await util.sha256(code);
+                    if (this._computedSecretCodeHashes.includes(enteredCodeHash)) {
+                        unlockedBySecretCode = 1;
+
+                        // --- Code Effects ---
+                        // Compare entered hash directly with computed hashes
+                        if (enteredCodeHash === this._computedSecretCodeHashes[0]) { 
+                            if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
+                            inputOverlay.remove(); // Remove input overlay
+                            this._s = 0;
+                            // Updated image paths to include 'egg' subdirectory
+                            this.showImageDisplayOverlay('./egg/cert1.png', './egg/cert2.png');
+                            return; // Exit function after displaying images
+                        } else if (enteredCodeHash === this._computedSecretCodeHashes[1]) { 
+                            if (typeof this.Log === 'function') this.Log("Correct code found, executing saved command...", LogLevel.info);
+                            inputOverlay.remove(); // Remove input overlay
+                            this._s = 0;
+                            this._startEffectM(); // Call obfuscated function
+                            return; // Exit function after starting effect
+                        } else if (enteredCodeHash === this._computedSecretCodeHashes[2]) { 
+                            if (typeof this.Log === 'function') this.Log("Secret code for password reset entered. Showing confirmation prompt.", LogLevel.info)
+                            inputOverlay.remove(); // Remove input overlay
+                            this._s = 0;
+                            var confirmed = await this.showConfirmationPrompt("Are you sure? This will delete your lock screen password and log you out from your ArcOS session.");
+                            if (confirmed) {
+                                if (typeof this.Log === 'function') this.Log("Password reset confirmed. Attempting to write reset marker and log out from ArcOS.", LogLevel.info);
+                                try {
+                                    if (this.fs && typeof this.fs.writeFile === 'function' && this._lockScreenPasswordFilePath) {
+                                        var blob = convert.textToBlob(RESET_PASSWORD_MARKER, 'text/plain');
+                                        await this.fs.writeFile(this._lockScreenPasswordFilePath, blob);
+                                        this._localPasswordHash = null; // Clear in-memory hash
+                                        this._localPassword = null; // Clear in-memory plaintext
+                                        this._h = 0; // Reset persistent hashing flag
+                                        if (typeof this.Log === 'function') this.Log("Lock screen password reset marker written successfully.", LogLevel.info);
+                                    } else {
+                                        if (typeof this.Log === 'function') this.Log("File system write function not available or path invalid for reset.", LogLevel.error);
+                                    }
+
+                                    if (this.userDaemon && typeof this.userDaemon.logoff === 'function') {
+                                        if (typeof this.Log === 'function') this.Log("Logging user out of ArcOS...", LogLevel.info);
+                                        await this.userDaemon.logoff();
+                                    } else {
+                                        if (typeof this.Log === 'function') this.Log("ArcOS logoff functionality not available via userDaemon.", LogLevel.error);
+                                    }
+                                } catch (e) {
+                                    if (typeof this.Log === 'function') this.Log("Error during password reset/ArcOS Logoff: " + e.message, LogLevel.error);
+                                }
+                            } else {
+                                if (typeof this.Log === 'function') this.Log("Password reset cancelled.", LogLevel.info);
+                            }
+                            return; // Exit function after handling prompt
+                        }
+                    }
+                } else {
+                    if (typeof this.Log === 'function') this.Log("util.sha256 not available. Secret code validation is not secure and will not work.", LogLevel.warning);
+                    errorDiv.textContent = 'Secret code validation is unavailable.';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+            } catch (e) {
+                if (typeof this.Log === 'function') this.Log("Error hashing secret code for validation: " + e.message, LogLevel.error);
+                errorDiv.textContent = 'An error occurred during validation.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            if (unlockedBySecretCode === 1) { // This path is now only for generic unlock if not specific easter egg
+                this._l = 1;
+                inputOverlay.remove();
+                this._s = 0;
+                this._u = 0;
+                if (this._showOverlayListener) {
+                    window.removeEventListener('keydown', this._showOverlayListener);
+                }
+                if (typeof this.closeWindow === 'function') {
+                    this.closeWindow();
+                }
+            } else {
+                errorDiv.textContent = 'Invalid, foolish ' + (this.displayName || 'user'); // Changed message
+                errorDiv.style.display = 'block';
+            }
+        };
+
+        cancelBtn.onclick = () => {
+            inputOverlay.remove();
+            this._s = 0;
+            // No action to go back to main password overlay. Just close.
+        };
+
+        secretCodeInput.onkeydown = (e) => { if (e.key === 'Enter') unlockSecretCodeBtn.click(); };
+    }
+
+
+    /**
+     * Displays the password entry overlay for unlocking the screen.
+     */
+    showPasswordOverlay() {
+        if (this._u === 1) return; // Prevent multiple overlays
+        this._u = 1;
+        var body = this.getBody();
+        if (!body) return;
+
+        // If secret code overlay is active, remove it before showing main password overlay
+        var secretCodeOverlay = body.querySelector('#secret-code-input-overlay');
+        if (secretCodeOverlay) {
+            secretCodeOverlay.remove();
+            this._s = 0; // Reset secret code overlay flag
+        }
+
+        var overlay = document.createElement('div');
+        overlay.id = 'lock-overlay';
+         overlay.style = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 10; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+        `;
+        overlay.innerHTML = `
+                <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+                    <img src="${this.profilePicture || 'https://placehold.co/96x96/222222/ffffff?text=User'}" alt="Profile"
+                         style="width: 96px; height: 96px; border-radius: 9999px; object-fit: cover; background-color: #4b5563; margin-bottom: 16px;"
+                         onerror="this.src='https://placehold.co/96x96/222222/ffffff?text=User'; this.style.display='block';" />
+                    <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 16px;">${this.displayName || 'User'}</div>
+
+                    <!-- Single Password Field -->
+                    <input id="lock-password" type="password" placeholder="Enter password"
+                           style="padding: 12px; font-size: 16px; border-radius: 8px; border: none; margin-bottom: 12px; width: 256px; background-color: #4b5563; color: #ffffff; outline: none; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.2s ease-in-out;"
+                           onfocus="this.style.boxShadow='0 0 0 2px #3b82f6';" onblur="this.style.boxShadow='0 0 0 2px transparent';" autofocus />
+
+                    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                        <button id="unlock-btn"
+                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
+                            Unlock
+                        </button>
+                        <button id="cancel-btn"
+                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
+                            Cancel
+                        </button>
+                    </div>
+                    <div id="unlock-error" style="color: #f87171; margin-top: 8px; font-size: 14px; display: none;"></div>
+
+                    <!-- Power Options -->
+                    <div style="position: absolute; bottom: 32px; right: 32px; display: flex; flex-direction: column; gap: 8px;">
+                        <button id="shutdown-btn"
+                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #dc2626; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#b91c1c';" onmouseout="this.style.backgroundColor='#dc2626';">
+                            Shutdown
+                        </button>
+                        <button id="logoff-btn"
+                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #d97706; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#b45309';" onmouseout="this.style.backgroundColor='#d97706';">
+                            Logoff
+                        </button>
+                        <button id="restart-btn"
+                                style="padding: 8px 16px; font-size: 14px; border-radius: 8px; border: none; background-color: #16a34a; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#15803d';" onmouseout="this.style.backgroundColor='#16a34a';">
+                            Restart
+                        </button>
+                    </div>
+                </div>
+            `;
+        body.appendChild(overlay);
+
+        var unlockBtn = overlay.querySelector('#unlock-btn');
+        var cancelBtn = overlay.querySelector('#cancel-btn');
+        var passwordInput = overlay.querySelector('#lock-password');
+        var errorDiv = overlay.querySelector('#unlock-error');
+        var shutdownBtn = overlay.querySelector('#shutdown-btn');
+        var logoffBtn = overlay.querySelector('#logoff-btn');
+        var restartBtn = overlay.querySelector('#restart-btn');
+
+        if (!unlockBtn || !cancelBtn || !passwordInput || !errorDiv || !shutdownBtn || !logoffBtn || !restartBtn) return;
+
+        unlockBtn.onclick = async () => {
+            var password = passwordInput.value;
+            if (!password) {
+                errorDiv.textContent = 'Please enter your password.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            var unlockedSuccessfully = 0;
+
+            try {
+                // 1. Validate against the local lock screen password (if set)
+                if (this._h === 1 && this._localPasswordHash) {
+                    if (typeof util !== 'undefined' && typeof util.sha256 === 'function') {
+                        var enteredPasswordHash = await util.sha256(password);
+                        if (enteredPasswordHash === this._localPasswordHash) {
+                            unlockedSuccessfully = 1;
+                        }
+                    } else {
+                        if (typeof this.Log === 'function') this.Log("util.sha256 is not available for validation. Cannot validate persistent hash.", LogLevel.error);
+                    }
+                } else if (this._h === 0 && this._localPassword) {
+                    if (password === this._localPassword) {
+                        unlockedSuccessfully = 1;
+                    }
+                }
+
+                // 2. If not unlocked yet, try validating against ArcOS account password
+                if (unlockedSuccessfully === 0 && this.userDaemon && typeof this.userDaemon.validatePassword === 'function') {
+                    try {
+                        unlockedSuccessfully = await this.userDaemon.validatePassword(password) ? 1 : 0; // Convert boolean to 0/1
+                        if (unlockedSuccessfully === 1) {
+                            if (typeof this.Log === 'function') this.Log("Unlocked using ArcOS account password.", LogLevel.info);
+                        }
+                    } catch (e) {
+                        if (typeof this.Log === 'function') this.Log("Error validating ArcOS account password (userDaemon.validatePassword): " + e.message, LogLevel.error);
+                        unlockedSuccessfully = 0;
+                    }
+                }
+
+                if (unlockedSuccessfully === 1) {
+                    this._l = 1;
+                    overlay.remove();
+                    this._u = 0;
+                    if (this._showOverlayListener) {
+                        window.removeEventListener('keydown', this._showOverlayListener);
+                    }
+                    if (typeof this.closeWindow === 'function') {
+                        this.closeWindow();
+                    }
+                } else {
+                    errorDiv.textContent = 'Incorrect password.';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (e) {
+                errorDiv.textContent = 'An unexpected error occurred during password validation. Please check console for details.';
+                errorDiv.style.display = 'block';
+                if (typeof this.Log === 'function') this.Log("Unhandled error during unlock attempt: " + e.message, LogLevel.error);
+            }
+        };
+
+        cancelBtn.onclick = () => {
+            overlay.remove();
+            this._u = 0;
+        };
+
+        shutdownBtn.onclick = async () => {
+            if (this.userDaemon && typeof this.userDaemon.shutdown === 'function') {
+                await this.userDaemon.shutdown();
+            } else {
+                if (typeof this.Log === 'function') this.Log("Shutdown functionality not available via userDaemon.", LogLevel.warning);
+            }
+        };
+
+        logoffBtn.onclick = async () => {
+            if (this.userDaemon && typeof this.userDaemon.logoff === 'function') {
+                await this.userDaemon.logoff();
+            } else {
+                if (typeof this.Log === 'function') this.Log("Logoff functionality not available via userDaemon.", LogLevel.warning);
+            }
+        };
+
+        restartBtn.onclick = async () => {
+            if (this.userDaemon && typeof this.userDaemon.restart === 'function') {
+                await this.userDaemon.restart();
+            } else {
+                if (typeof this.Log === 'function') this.Log("Restart functionality not available via userDaemon.", LogLevel.warning);
+            }
+        };
+
+        passwordInput.onkeydown = (e) => {
+            if (e.key === 'Enter') unlockBtn.click();
+        };
+    }
+
+    /**
+     * Displays an overlay with two images side-by-side.
+     * @param {string} imageUrl1 - URL for the first image.
+     * @param {string} imageUrl2 - URL for the second image.
+     */
+    showImageDisplayOverlay(imageUrl1, imageUrl2) {
+        var body = this.getBody();
+        if (!body) return;
+
+        var imageOverlay = document.createElement('div');
+        imageOverlay.id = 'image-display-overlay';
+        imageOverlay.style = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.9);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+        `;
+        imageOverlay.innerHTML = `
+            <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+                <div style="display: flex; gap: 16px; margin-bottom: 24px;">
+                    <img src="${imageUrl1}" alt="Certificate 1" style="width: 256px; height: auto; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); object-fit: contain;"
+                         onerror="this.src='https://placehold.co/300x200/cccccc/000000?text=Image+Load+Error'; this.style.display='block';" />
+                    <img src="${imageUrl2}" alt="Certificate 2" style="width: 256px; height: auto; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); object-fit: contain;"
+                         onerror="this.src='https://placehold.co/300x200/999999/ffffff?text=Image+Load+Error'; this.style.display='block';" />
+                </div>
+                <button id="close-image-overlay-btn"
+                        style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #2563eb; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                        onmouseover="this.style.backgroundColor='#1d4ed8';" onmouseout="this.style.backgroundColor='#2563eb';">
+                    Close
+                </button>
+            </div>
+        `;
+        body.appendChild(imageOverlay);
+
+        var closeBtn = imageOverlay.querySelector('#close-image-overlay-btn');
+        if (closeBtn) {
+            closeBtn.onclick = () => {
+                imageOverlay.remove();
+                // When closing image overlay, do not show password overlay.
+                // The main render loop will keep the background animation running.
+            };
+        }
+    }
+
+    /**
+     * Displays a confirmation prompt with Yes/No buttons.
+     * @param {string} message - The message to display in the prompt.
+     * @returns {Promise<boolean>} A promise that resolves to true if 'Yes' is clicked, false otherwise.
+     */
+    showConfirmationPrompt(message) {
+        return new Promise(resolve => {
+            var body = this.getBody();
+            if (!body) {
+                resolve(false);
+                return;
+            }
+
+            var promptOverlay = document.createElement('div');
+            promptOverlay.id = 'confirmation-prompt-overlay';
+            promptOverlay.style = `
+                position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                background-color: rgba(0, 0, 0, 0.85);
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+            `;
+            promptOverlay.innerHTML = `
+                <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
+                    <div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-bottom: 24px;">${message}</div>
+                    <div style="display: flex; gap: 16px;">
+                        <button id="yes-btn"
+                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #dc2626; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#b91c1c';" onmouseout="this.style.backgroundColor='#dc2626';">
+                            Yes
+                        </button>
+                        <button id="no-btn"
+                                style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #4b5563; color: #ffffff; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);"
+                                onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
+                            No
+                        </button>
+                    </div>
+                </div>
+            `;
+            body.appendChild(promptOverlay);
+
+            var yesBtn = promptOverlay.querySelector('#yes-btn');
+            var noBtn = promptOverlay.querySelector('#no-btn');
+
+            if (!yesBtn || !noBtn) {
+                resolve(false);
+                return;
+            }
+
+            yesBtn.onclick = () => {
+                promptOverlay.remove();
+                resolve(true);
+            };
+
+            noBtn.onclick = () => {
+                promptOverlay.remove();
+                resolve(false);
+            };
+        });
+    }
+
+    /**
+     * Starts the Flurry-style animation on the canvas.
+     */
+    startFlurryAnimation() {
+        if (this._disposed) return;
+
+        var canvas = this.getBody().querySelector('#flurry-canvas');
+        if (!canvas) {
+            if (typeof this.Log === 'function') this.Log("Flurry canvas not found!", LogLevel.error);
+            return;
+        }
+
+        var resizeCanvas = () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        };
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        var ctx = canvas.getContext('2d');
+        var NUM_CURVES = 5;
+        var POINTS_PER_CURVE = 6;
+        var curves = [];
+        var colors = [
+            '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#A66CFF', '#FF6EC7', '#00C2CB', '#FFB26B'
+        ];
+
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function createCurve() {
+            var points = [];
+            for (var i = 0; i < POINTS_PER_CURVE; i++) {
+                points.push({
+                    x: random(0, canvas.width),
+                    y: random(0, canvas.height),
+                    vx: random(-1, 1),
+                    vy: random(-1, 1)
+                });
+            }
+            return {
+                points,
+                color: colors[Math.floor(random(0, colors.length))],
+                alpha: random(0.3, 0.7),
+                width: random(1.5, 3.5)
+            };
+        }
+
+        for (var i = 0; i < NUM_CURVES; i++) {
+            curves.push(createCurve());
+        }
+
+        var animate = () => {
+            // Only run if not disposed and effect is NOT active
+            if (this._disposed || this._m === 1) {
+                // If effect is active, clear the canvas to prevent flurry drawing over it
+                if (this._m === 1 && canvas) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+                return;
+            }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (var i = 0; i < curves.length; i++) {
+                var curve = curves[i];
+                ctx.save();
+                ctx.globalAlpha = curve.alpha;
+                ctx.strokeStyle = curve.color;
+                ctx.lineWidth = curve.width;
+                ctx.beginPath();
+                ctx.moveTo(curve.points[0].x, curve.points[0].y);
+                for (var j = 1; j < curve.points.length - 2; j++) {
+                    var xc = (curve.points[j].x + curve.points[j + 1].x) / 2;
+                    var yc = (curve.points[j].y + curve.points[j + 1].y) / 2;
+                    ctx.quadraticCurveTo(curve.points[j].x, curve.points[j].y, xc, yc);
+                }
+                ctx.quadraticCurveTo(
+                    curve.points[curve.points.length - 2].x,
+                    curve.points[curve.points.length - 2].y,
+                    curve.points[curve.points.length - 1].x,
+                    curve.points[curve.points.length - 1].y
+                );
+                ctx.stroke();
+                ctx.restore();
+
+                for (var k = 0; k < curve.points.length; k++) {
+                    var pt = curve.points[k];
+                    pt.x += pt.vx;
+                    pt.y += pt.vy;
+                    if (pt.x < 0 || pt.x > canvas.width) pt.vx *= -1;
+                    if (pt.y < 0 || pt.y > canvas.height) pt.vy *= -1;
+                }
+            }
+
+            requestAnimationFrame(animate);
+        };
+
+        animate();
+    }
+
+    /**
+     * Starts the special code effect on the canvas.
+     */
+    _startEffectM() {
+        this._m = 1; // Set effect active flag to true
+        var canvas = this.getBody().querySelector('#flurry-canvas');
+        if (!canvas) {
+            if (typeof this.Log === 'function') this.Log("Effect canvas not found!", LogLevel.error);
+            return;
+        }
+        var ctx = canvas.getContext('2d');
+
+        var effectChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; 
+        var effectFontSize = 16; 
+        var effectColumns = canvas.width / effectFontSize; 
+        var effectDrops = []; // Array to store y-position of each column's character
+
+        // Initialize drops to random starting positions
+        for (var x = 0; x < effectColumns; x++) {
+            effectDrops[x] = Math.random() * canvas.height / effectFontSize;
+        }
+
+        var drawEffect = () => { // Formerly drawMatrix
+            if (this._m === 0 || this._disposed) return; // Stop if effect is NOT active or disposed
+
+            // Semi-transparent black rectangle to fade out previous frames
+            ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = "#0F0"; // Green text
+            ctx.font = `${effectFontSize}px monospace`;
+
+            for (var i = 0; i < effectDrops.length; i++) {
+                var text = effectChars.charAt(Math.floor(Math.random() * effectChars.length));
+                ctx.fillText(text, i * effectFontSize, effectDrops[i] * effectFontSize);
+
+                // Send the character back to the top randomly
+                if (effectDrops[i] * effectFontSize > canvas.height && Math.random() > 0.975) {
+                    effectDrops[i] = 0;
+                }
+                effectDrops[i]++;
+            }
+
+            requestAnimationFrame(drawEffect);
+        };
+
+        drawEffect(); // Start the effect animation loop
+
+        // Set a timeout to automatically revert after a few seconds
+        this._effectTimeout = setTimeout(() => {
+            this._stopEffectM(); // Call obfuscated function
+            // Do NOT call showPasswordOverlay() here. Return to background animation.
+        }, 15000); // 15 seconds
+
+        // Add a temporary key listener to stop the effect immediately
+        this._effectDismissListener = (e) => {
+            // Any key press will dismiss the effect
+            this._stopEffectM(); // Call obfuscated function
+            // Do NOT call showPasswordOverlay() here. Return to background animation.
+            window.removeEventListener('keydown', this._effectDismissListener);
+        };
+        window.addEventListener('keydown', this._effectDismissListener);
+    }
+
+    /**
+     * Stops the special code effect and cleans up.
      */
     _stopEffectM() {
-        this._m = 0;
+        this._m = 0; // Set effect active flag to false
         if (this._effectTimeout) {
             clearTimeout(this._effectTimeout);
             this._effectTimeout = null;
@@ -777,13 +947,117 @@ class proc extends ThirdPartyAppProcess {
         }
     }
 
-    handleSecretCode() {
-        this.Log('Handling secret code logic.', 0); // LogLevel.info
-        // Add logic for handling secret codes here
-        // For now, just log the event
+    /**
+     * Displays the settings dialog for adjusting application settings.
+     */
+    showSettingsDialog() {
+        const body = this.getBody();
+        if (!body) return;
+        // Remove any existing settings overlay
+        let existing = body.querySelector('#settings-overlay');
+        if (existing) existing.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'settings-overlay';
+        overlay.style.position = 'fixed';
+        overlay.style.left = '0';
+        overlay.style.top = '0';
+        overlay.style.width = '100%';
+        overlay.style.height = '100%';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.background = 'rgba(0,0,0,0.7)';
+        overlay.style.zIndex = '40000';
+        const card = document.createElement('div');
+        card.style.background = '#222';
+        card.style.color = '#fff';
+        card.style.padding = '32px';
+        card.style.borderRadius = '12px';
+        card.style.minWidth = '320px';
+        card.style.maxWidth = '90%';
+        card.style.textAlign = 'center';
+        card.innerHTML = `
+            <div style="font-size:20px;margin-bottom:16px;">Settings</div>
+            <div style="margin-bottom:16px;">
+                <label>
+                    <span style="margin-right:8px;">Animation Curves:</span>
+                    <input id="settings-num-curves" type="number" min="1" max="20" value="${this._settings?.numCurves || 5}" style="width:60px;">
+                </label>
+            </div>
+            <div style="margin-bottom:16px;">
+                <label>
+                    <span style="margin-right:8px;">Points per Curve:</span>
+                    <input id="settings-points-per-curve" type="number" min="3" max="20" value="${this._settings?.pointsPerCurve || 6}" style="width:60px;">
+                </label>
+            </div>
+            <div style="margin-bottom:16px;">
+                <label>
+                    <span style="margin-right:8px;">Animation Speed:</span>
+                    <input id="settings-speed" type="number" min="0.1" max="5" step="0.1" value="${this._settings?.speed || 1.2}" style="width:60px;">
+                </label>
+            </div>
+            <div style="margin-bottom:16px;">
+                <label>
+                    <span style="margin-right:8px;">Color Scheme:</span>
+                    <select id="settings-color-scheme">
+                        <option value="default" ${this._settings?.colorScheme === 'default' ? 'selected' : ''}>Default</option>
+                        <option value="pastel" ${this._settings?.colorScheme === 'pastel' ? 'selected' : ''}>Pastel</option>
+                        <option value="neon" ${this._settings?.colorScheme === 'neon' ? 'selected' : ''}>Neon</option>
+                    </select>
+                </label>
+            </div>
+        `;
+        const saveBtn = document.createElement('button');
+        saveBtn.textContent = 'Save';
+        saveBtn.style.padding = '8px 12px';
+        saveBtn.style.border = 'none';
+        saveBtn.style.borderRadius = '8px';
+        saveBtn.style.background = '#2563eb';
+        saveBtn.style.color = '#fff';
+        saveBtn.style.cursor = 'pointer';
+        saveBtn.style.marginTop = '12px';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = 'Close';
+        closeBtn.style.padding = '8px 12px';
+        closeBtn.style.border = 'none';
+        closeBtn.style.borderRadius = '8px';
+        closeBtn.style.background = '#aaa';
+        closeBtn.style.color = '#222';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.marginTop = '12px';
+        closeBtn.style.marginLeft = '8px';
+
+        card.appendChild(saveBtn);
+        card.appendChild(closeBtn);
+        overlay.appendChild(card);
+        body.appendChild(overlay);
+
+        saveBtn.addEventListener('click', async () => {
+            const numCurves = parseInt(card.querySelector('#settings-num-curves').value, 10);
+            const pointsPerCurve = parseInt(card.querySelector('#settings-points-per-curve').value, 10);
+            const speed = parseFloat(card.querySelector('#settings-speed').value);
+            const colorScheme = card.querySelector('#settings-color-scheme').value;
+            this._settings = {
+                numCurves,
+                pointsPerCurve,
+                speed,
+                colorScheme
+            };
+            if (typeof this._saveSettings === 'function') {
+                await this._saveSettings();
+            }
+            overlay.remove();
+            if (typeof this.Log === 'function') this.Log('Settings saved.', 0);
+            // Optionally restart animation with new settings
+            if (typeof this.startFlurryAnimation === 'function') {
+                this.startFlurryAnimation();
+            }
+        });
+
+        closeBtn.addEventListener('click', () => overlay.remove());
     }
 }
 
-return {
-    proc
-};
+
+return { proc };
