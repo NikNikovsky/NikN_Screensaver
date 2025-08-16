@@ -58,6 +58,7 @@ class proc extends ThirdPartyAppProcess {
         if (this._canUsePersistentHashing && this.fs && typeof this.fs.readFile === 'function') {
             try {
                 const configPath = 'U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash';
+                const configPath = 'U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash';
                 const file = await this.fs.readFile(configPath);
                 if (file) {
                     const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function'
