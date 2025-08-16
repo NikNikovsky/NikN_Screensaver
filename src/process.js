@@ -774,106 +774,117 @@ class proc extends ThirdPartyAppProcess {
     /**
      * Starts the Flurry-style animation on the canvas.
      */
-    startFlurryAnimation() {
-        if (this._disposed) return;
+startFlurryAnimation() {
+    if (this._disposed) return;
 
-        var canvas = this.getBody().querySelector('#flurry-canvas');
-        if (!canvas) {
-            if (typeof this.Log === 'function') this.Log("Flurry canvas not found!", LogLevel.error);
-            return;
-        }
-
-        var resizeCanvas = () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        };
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
-
-        var ctx = canvas.getContext('2d');
-        var NUM_CURVES = 5;
-        var POINTS_PER_CURVE = 6;
-        var curves = [];
-        var colors = [
-            '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#A66CFF', '#FF6EC7', '#00C2CB', '#FFB26B'
-        ];
-
-        function random(min, max) {
-            return Math.random() * (max - min) + min;
-        }
-
-        function createCurve() {
-            var points = [];
-            for (var i = 0; i < POINTS_PER_CURVE; i++) {
-                points.push({
-                    x: random(0, canvas.width),
-                    y: random(0, canvas.height),
-                    vx: random(-1, 1),
-                    vy: random(-1, 1)
-                });
-            }
-            return {
-                points,
-                color: colors[Math.floor(random(0, colors.length))],
-                alpha: random(0.3, 0.7),
-                width: random(1.5, 3.5)
-            };
-        }
-
-        for (var i = 0; i < NUM_CURVES; i++) {
-            curves.push(createCurve());
-        }
-
-        var animate = () => {
-            // Only run if not disposed and effect is NOT active
-            if (this._disposed || this._m === 1) {
-                // If effect is active, clear the canvas to prevent flurry drawing over it
-                if (this._m === 1 && canvas) {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                }
-                return;
-            }
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            for (var i = 0; i < curves.length; i++) {
-                var curve = curves[i];
-                ctx.save();
-                ctx.globalAlpha = curve.alpha;
-                ctx.strokeStyle = curve.color;
-                ctx.lineWidth = curve.width;
-                ctx.beginPath();
-                ctx.moveTo(curve.points[0].x, curve.points[0].y);
-                for (var j = 1; j < curve.points.length - 2; j++) {
-                    var xc = (curve.points[j].x + curve.points[j + 1].x) / 2;
-                    var yc = (curve.points[j].y + curve.points[j + 1].y) / 2;
-                    ctx.quadraticCurveTo(curve.points[j].x, curve.points[j].y, xc, yc);
-                }
-                ctx.quadraticCurveTo(
-                    curve.points[curve.points.length - 2].x,
-                    curve.points[curve.points.length - 2].y,
-                    curve.points[curve.points.length - 1].x,
-                    curve.points[curve.points.length - 1].y
-                );
-                ctx.stroke();
-                ctx.restore();
-
-                for (var k = 0; k < curve.points.length; k++) {
-                    var pt = curve.points[k];
-                    pt.x += pt.vx;
-                    pt.y += pt.vy;
-                    if (pt.x < 0 || pt.x > canvas.width) pt.vx *= -1;
-                    if (pt.y < 0 || pt.y > canvas.height) pt.vy *= -1;
-                }
-            }
-
-            requestAnimationFrame(animate);
-        };
-
-        animate();
+    var canvas = this.getBody().querySelector('#flurry-canvas');
+    if (!canvas) {
+        if (typeof this.Log === 'function') this.Log("Flurry canvas not found!", LogLevel.error);
+        return;
     }
 
+    var resizeCanvas = () => {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+    };
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    var ctx = canvas.getContext('2d');
+    var settings = this._settings || {
+        numCurves: 12,
+        pointsPerCurve: 10,
+        speed: 1.2,
+        colorScheme: 'default'
+    };
+    var NUM_CURVES = settings.numCurves;
+    var POINTS_PER_CURVE = settings.pointsPerCurve;
+    var SPEED = settings.speed;
+    var colorSchemes = {
+        default: ['#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#A66CFF', '#FF6EC7', '#00C2CB', '#FFB26B'],
+        cool: ['#4D96FF', '#A66CFF', '#00C2CB', '#6BCB77'],
+        warm: ['#FF6B6B', '#FFD93D', '#FFB26B', '#FF6EC7'],
+        rgb: [
+            '#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3', '#00FFFF', '#FF00FF', '#FFFFFF',
+            '#39FF14', '#FF3131', '#F3F315', '#00BFFF', '#FF1493'
+        ],
+    };
+    var colors = colorSchemes[settings.colorScheme] || colorSchemes.default;
+
+    function random(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+
+    function createCurve() {
+        var points = [];
+        for (var i = 0; i < POINTS_PER_CURVE; i++) {
+            points.push({
+                x: random(0, canvas.width),
+                y: random(0, canvas.height),
+                vx: random(-SPEED, SPEED),
+                vy: random(-SPEED, SPEED)
+            });
+        }
+        return {
+            points,
+            color: colors[Math.floor(random(0, colors.length))],
+            alpha: random(0.3, 0.7),
+            width: random(1.5, 3.5) * (canvas.width / window.innerWidth)
+        };
+    }
+    var curves = [];
+    for (var i = 0; i < NUM_CURVES; i++) {
+        curves.push(createCurve());
+    }
+    var animate = () => {
+        if (this._disposed || this._m === 1) {
+            if (this._m === 1 && canvas) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            return;
+        }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+        for (var i = 0; i < curves.length; i++) {
+            var curve = curves[i];
+            ctx.save();
+            ctx.globalAlpha = curve.alpha;
+            ctx.strokeStyle = curve.color;
+            ctx.lineWidth = curve.width;
+            ctx.beginPath();
+            ctx.moveTo(curve.points[0].x / (window.devicePixelRatio || 1), curve.points[0].y / (window.devicePixelRatio || 1));
+            for (var j = 1; j < curve.points.length - 2; j++) {
+                var xc = (curve.points[j].x + curve.points[j + 1].x) / 2;
+                var yc = (curve.points[j].y + curve.points[j + 1].y) / 2;
+                ctx.quadraticCurveTo(curve.points[j].x / (window.devicePixelRatio || 1), curve.points[j].y / (window.devicePixelRatio || 1), xc / (window.devicePixelRatio || 1), yc / (window.devicePixelRatio || 1));
+            }
+            ctx.quadraticCurveTo(
+                curve.points[curve.points.length - 2].x / (window.devicePixelRatio || 1),
+                curve.points[curve.points.length - 2].y / (window.devicePixelRatio || 1),
+                curve.points[curve.points.length - 1].x / (window.devicePixelRatio || 1),
+                curve.points[curve.points.length - 1].y / (window.devicePixelRatio || 1)
+            );
+            ctx.stroke();
+            ctx.restore();
+            for (var k = 0; k < curve.points.length; k++) {
+                var pt = curve.points[k];
+                pt.x += pt.vx;
+                pt.y += pt.vy;
+                if (pt.x < 0 || pt.x > canvas.width) pt.vx *= -1;
+                if (pt.y < 0 || pt.y > canvas.height) pt.vy *= -1;
+            }
+        }
+        ctx.restore();
+        requestAnimationFrame(animate);
+    };
+    animate();
+}
     /**
-     * Starts the special code effect on the canvas.
+     * Starts the special effect on the canvas.
      */
     _startEffectM() {
         this._m = 1; // Set effect active flag to true
@@ -894,7 +905,7 @@ class proc extends ThirdPartyAppProcess {
             effectDrops[x] = Math.random() * canvas.height / effectFontSize;
         }
 
-        var drawEffect = () => { // Formerly drawMatrix
+        var drawEffect = () => { 
             if (this._m === 0 || this._disposed) return; // Stop if effect is NOT active or disposed
 
             // Semi-transparent black rectangle to fade out previous frames
