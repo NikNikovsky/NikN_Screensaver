@@ -36,7 +36,7 @@ class proc extends ThirdPartyAppProcess {
         this.profilePicture = null; // User's profile picture URL
         this.displayName = null;    // User's display name
         this._showOverlayListener = null; // Listener for space key
-
+        this._settingsConfigFilePath = "U:/System/Config/NikN_Screensaver/screensaver.json";
         this._localPasswordHash = null; // Stores SHA256 hash if persistent storage is used for main password
         this._localPassword = null;     // Stores plaintext password in-memory if persistent storage fails for main password
 
@@ -47,7 +47,7 @@ class proc extends ThirdPartyAppProcess {
         this._effectDismissListener = null; // Listener for dismissing effect 
 
         // Define file path for the main lock screen password within the app's working directory
-        this._lockScreenPasswordFilePath = `U:/Config/NikN_Screensaver/lockscreen.pwd.hash`
+        this._lockScreenPasswordFilePath = `U:/System/Config/NikN_Screensaver/lockscreen.pwd.hash`
         if (typeof this.Log === 'function') this.Log("Lock screen password file path set to: " + this._lockScreenPasswordFilePath, LogLevel.info);
 
         this._h = 0; // Determined during constructor/render 
@@ -526,6 +526,11 @@ class proc extends ThirdPartyAppProcess {
                                 onmouseover="this.style.backgroundColor='#374151';" onmouseout="this.style.backgroundColor='#4b5563';">
                             Cancel
                         </button>
+                        <button id="settings-btn"
+        style="padding: 12px 24px; font-size: 16px; border-radius: 8px; border: none; background-color: #7c3aed; color: #ffffff; font-weight: 600; cursor: pointer;"
+        onmouseover="this.style.backgroundColor='#5b21b6';" onmouseout="this.style.backgroundColor='#7c3aed';">
+        Settings
+    </button>
                     </div>
                     <div id="unlock-error" style="color: #f87171; margin-top: 8px; font-size: 14px; display: none;"></div>
 
@@ -558,6 +563,7 @@ class proc extends ThirdPartyAppProcess {
         var shutdownBtn = overlay.querySelector('#shutdown-btn');
         var logoffBtn = overlay.querySelector('#logoff-btn');
         var restartBtn = overlay.querySelector('#restart-btn');
+        var settingsBtn = overlay.querySelector('#settings-btn');
 
         if (!unlockBtn || !cancelBtn || !passwordInput || !errorDiv || !shutdownBtn || !logoffBtn || !restartBtn) return;
 
@@ -649,6 +655,10 @@ class proc extends ThirdPartyAppProcess {
             } else {
                 if (typeof this.Log === 'function') this.Log("Restart functionality not available via userDaemon.", LogLevel.warning);
             }
+        };
+
+        settingsBtn.onclick = () => {
+            this.showSettingsDialog();
         };
 
         passwordInput.onkeydown = (e) => {
@@ -951,111 +961,103 @@ class proc extends ThirdPartyAppProcess {
      * Displays the settings dialog for adjusting application settings.
      */
     showSettingsDialog() {
+        this._showSettingsModal();
+    }
+
+    _showSettingsModal() {
         const body = this.getBody();
         if (!body) return;
-        // Remove any existing settings overlay
-        let existing = body.querySelector('#settings-overlay');
-        if (existing) existing.remove();
-        const overlay = document.createElement('div');
-        overlay.id = 'settings-overlay';
-        overlay.style.position = 'fixed';
-        overlay.style.left = '0';
-        overlay.style.top = '0';
-        overlay.style.width = '100%';
-        overlay.style.height = '100%';
-        overlay.style.display = 'flex';
-        overlay.style.alignItems = 'center';
-        overlay.style.justifyContent = 'center';
-        overlay.style.background = 'rgba(0,0,0,0.7)';
-        overlay.style.zIndex = '40000';
-        const card = document.createElement('div');
-        card.style.background = '#222';
-        card.style.color = '#fff';
-        card.style.padding = '32px';
-        card.style.borderRadius = '12px';
-        card.style.minWidth = '320px';
-        card.style.maxWidth = '90%';
-        card.style.textAlign = 'center';
-        card.innerHTML = `
-            <div style="font-size:20px;margin-bottom:16px;">Settings</div>
-            <div style="margin-bottom:16px;">
-                <label>
-                    <span style="margin-right:8px;">Animation Curves:</span>
-                    <input id="settings-num-curves" type="number" min="1" max="20" value="${this._settings?.numCurves || 5}" style="width:60px;">
-                </label>
-            </div>
-            <div style="margin-bottom:16px;">
-                <label>
-                    <span style="margin-right:8px;">Points per Curve:</span>
-                    <input id="settings-points-per-curve" type="number" min="3" max="20" value="${this._settings?.pointsPerCurve || 6}" style="width:60px;">
-                </label>
-            </div>
-            <div style="margin-bottom:16px;">
-                <label>
-                    <span style="margin-right:8px;">Animation Speed:</span>
-                    <input id="settings-speed" type="number" min="0.1" max="5" step="0.1" value="${this._settings?.speed || 1.2}" style="width:60px;">
-                </label>
-            </div>
-            <div style="margin-bottom:16px;">
-                <label>
-                    <span style="margin-right:8px;">Color Scheme:</span>
-                    <select id="settings-color-scheme">
-                        <option value="default" ${this._settings?.colorScheme === 'default' ? 'selected' : ''}>Default</option>
-                        <option value="pastel" ${this._settings?.colorScheme === 'pastel' ? 'selected' : ''}>Pastel</option>
-                        <option value="neon" ${this._settings?.colorScheme === 'neon' ? 'selected' : ''}>Neon</option>
-                    </select>
-                </label>
+        const oldModal = body.querySelector('#settings-modal');
+        if (oldModal) oldModal.remove();
+        const modal = document.createElement('div');
+        modal.id = 'settings-modal';
+        modal.style = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0,0,0,0.7); z-index: 20000; display: flex; align-items: center; justify-content: center;`;
+        const s = this._settings || {
+            numCurves: 12,
+            pointsPerCurve: 10,
+            speed: 1.2,
+            colorScheme: 'default'
+        };
+        modal.innerHTML = `
+            <div style="background: #222; color: #fff; padding: 32px; border-radius: 16px; min-width: 340px; max-width: 95vw; box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center;">
+                <h2 style="font-size: 1.5em; margin-bottom: 16px;">Screensaver Settings</h2>
+                <div style="margin-bottom: 16px; width: 100%;">
+                    <label style='display:block;margin-bottom:8px;'>Curves: <input id='num-curves' type='number' min='1' max='40' value='${s.numCurves}' style='width:60px;margin-left:8px;'></label>
+                    <label style='display:block;margin-bottom:8px;'>Points per Curve: <input id='points-per-curve' type='number' min='3' max='30' value='${s.pointsPerCurve}' style='width:60px;margin-left:8px;'></label>
+                    <label style='display:block;margin-bottom:8px;'>Speed: <input id='curve-speed' type='number' min='0.1' max='5' step='0.1' value='${s.speed}' style='width:60px;margin-left:8px;'></label>
+                    <label style='display:block;margin-bottom:8px;'>Color Scheme: <select id='color-scheme' style='margin-left:8px;'>
+                        <option value='default' ${s.colorScheme === 'default' ? 'selected' : ''}>Default</option>
+                        <option value='cool' ${s.colorScheme === 'cool' ? 'selected' : ''}>Cool</option>
+                        <option value='warm' ${s.colorScheme === 'warm' ? 'selected' : ''}>Warm</option>
+                        <option value='rgb' ${s.colorScheme === 'rgb' ? 'selected' : ''}>RGB (Rainbow)</option>
+                    </select></label>
+                </div>
+                <div style='display:flex;gap:16px;margin-top:8px;'>
+                    <button id="save-settings-btn" style="padding: 8px 24px; border-radius: 8px; border: none; background: #10b981; color: #fff; font-weight: 600; font-size: 1em; cursor: pointer;">Save</button>
+                    <button id="close-settings-btn" style="padding: 8px 24px; border-radius: 8px; border: none; background: #2563eb; color: #fff; font-weight: 600; font-size: 1em; cursor: pointer;">Close</button>
+                </div>
             </div>
         `;
-        const saveBtn = document.createElement('button');
-        saveBtn.textContent = 'Save';
-        saveBtn.style.padding = '8px 12px';
-        saveBtn.style.border = 'none';
-        saveBtn.style.borderRadius = '8px';
-        saveBtn.style.background = '#2563eb';
-        saveBtn.style.color = '#fff';
-        saveBtn.style.cursor = 'pointer';
-        saveBtn.style.marginTop = '12px';
-
-        const closeBtn = document.createElement('button');
-        closeBtn.textContent = 'Close';
-        closeBtn.style.padding = '8px 12px';
-        closeBtn.style.border = 'none';
-        closeBtn.style.borderRadius = '8px';
-        closeBtn.style.background = '#aaa';
-        closeBtn.style.color = '#222';
-        closeBtn.style.cursor = 'pointer';
-        closeBtn.style.marginTop = '12px';
-        closeBtn.style.marginLeft = '8px';
-
-        card.appendChild(saveBtn);
-        card.appendChild(closeBtn);
-        overlay.appendChild(card);
-        body.appendChild(overlay);
-
-        saveBtn.addEventListener('click', async () => {
-            const numCurves = parseInt(card.querySelector('#settings-num-curves').value, 10);
-            const pointsPerCurve = parseInt(card.querySelector('#settings-points-per-curve').value, 10);
-            const speed = parseFloat(card.querySelector('#settings-speed').value);
-            const colorScheme = card.querySelector('#settings-color-scheme').value;
+        body.appendChild(modal);
+        modal.querySelector('#close-settings-btn').onclick = () => {
+            modal.remove();
+        };
+        modal.querySelector('#save-settings-btn').onclick = async () => {
+            // Read values
+            const numCurves = Math.max(1, Math.min(40, parseInt(modal.querySelector('#num-curves').value) || 12));
+            const pointsPerCurve = Math.max(3, Math.min(30, parseInt(modal.querySelector('#points-per-curve').value) || 10));
+            const speed = Math.max(0.1, Math.min(5, parseFloat(modal.querySelector('#curve-speed').value) || 1.2));
+            const colorScheme = modal.querySelector('#color-scheme').value;
             this._settings = {
                 numCurves,
                 pointsPerCurve,
                 speed,
                 colorScheme
             };
-            if (typeof this._saveSettings === 'function') {
-                await this._saveSettings();
-            }
-            overlay.remove();
-            if (typeof this.Log === 'function') this.Log('Settings saved.', 0);
-            // Optionally restart animation with new settings
-            if (typeof this.startFlurryAnimation === 'function') {
-                this.startFlurryAnimation();
-            }
-        });
+            await this._saveSettings();
+            modal.remove();
+            this.startFlurryAnimation();
+        };
+    }
 
-        closeBtn.addEventListener('click', () => overlay.remove());
+    async _loadSettingsConfig() {
+        const defaultSettings = {
+            numCurves: 12,
+            pointsPerCurve: 10,
+            speed: 1.2,
+            colorScheme: 'default',
+        };
+        this._settings = defaultSettings;
+        try {
+            if (this.fs && typeof this.fs.readFile === 'function') {
+                const file = await this.fs.readFile(this._settingsConfigFilePath);
+                if (file) {
+                    const text = typeof convert !== 'undefined' && typeof convert.arrayToText === 'function'
+                        ? convert.arrayToText(new Uint8Array(file))
+                        : new TextDecoder().decode(new Uint8Array(file));
+                    const parsed = JSON.parse(text);
+                    this._settings = Object.assign({}, defaultSettings, parsed);
+                }
+            }
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Could not load screensaver settings: ' + e.message, LogLevel.warning);
+        }
+    }
+
+    async _saveSettingsConfig() {
+        try {
+            if (this.fs && typeof this.fs.writeFile === 'function') {
+                const json = JSON.stringify(this._settings);
+                const blob = typeof convert !== 'undefined' && typeof convert.textToBlob === 'function'
+                    ? convert.textToBlob(json, 'application/json')
+                    : new Blob([json], { type: 'application/json' });
+                await this.fs.writeFile(this._settingsConfigFilePath, blob);
+            }
+        } catch (e) {
+            if (typeof this.Log === 'function') this.Log('Could not save screensaver settings: ' + e.message, LogLevel.error);
+        }
     }
 }
 
