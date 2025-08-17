@@ -231,7 +231,7 @@ class proc extends ThirdPartyAppProcess {
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background-color: rgba(0, 0, 0, 0.85);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+            z-index: 50;
         `;
         setupOverlay.innerHTML = `
             <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
@@ -342,7 +342,7 @@ class proc extends ThirdPartyAppProcess {
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background-color: rgba(0, 0, 0, 0.85);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+            z-index: 50;
         `;
         inputOverlay.innerHTML = `
             <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
@@ -502,7 +502,7 @@ class proc extends ThirdPartyAppProcess {
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background-color: rgba(0, 0, 0, 0.85);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 10; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+            z-index: 10;
         `;
         overlay.innerHTML = `
                 <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
@@ -682,7 +682,7 @@ class proc extends ThirdPartyAppProcess {
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
             background-color: rgba(0, 0, 0, 0.9);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+            z-index: 50;
         `;
         imageOverlay.innerHTML = `
             <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
@@ -730,7 +730,7 @@ class proc extends ThirdPartyAppProcess {
                 position: fixed; top: 0; left: 0; right: 0; bottom: 0;
                 background-color: rgba(0, 0, 0, 0.85);
                 display: flex; flex-direction: column; align-items: center; justify-content: center;
-                z-index: 50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+                z-index: 50;
             `;
             promptOverlay.innerHTML = `
                 <div style="background-color: rgba(31, 41, 55, 0.9); padding: 32px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; align-items: center;">
@@ -913,7 +913,7 @@ startFlurryAnimation() {
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             ctx.fillStyle = "#0F0"; // Green text
-            ctx.font = `${effectFontSize}px monospace`;
+            ctx.font = `${effectFontSize}px`;
 
             for (var i = 0; i < effectDrops.length; i++) {
                 var text = effectChars.charAt(Math.floor(Math.random() * effectChars.length));
