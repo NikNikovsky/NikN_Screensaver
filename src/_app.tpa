@@ -1,7 +1,7 @@
 {
   "metadata": {
     "name": "Screensaver",
-    "version": "1.0.8",
+    "version": "1.0.9dev1",
     "author": "Nik Nikovsky",
     "icon": "@local:icon.png",
     "appGroup": "systemTools"
@@ -28,7 +28,7 @@
     "maximized": true,
     "headless": false,
     "resizable": false,
-    "fullscreen": true
+    "fullscreen": false
   },
   "controls": {
     "minimize": true,
@@ -40,5 +40,6 @@
   "core": false,
   "entrypoint": "main.js",
   "id": "NikN_Screensaver",
-  "overlay": true
+  "overlay": false,
+  "autoMinimizeTimeout": 300000
 }

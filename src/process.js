@@ -51,12 +51,19 @@ class proc extends ThirdPartyAppProcess {
         if (typeof this.Log === 'function') this.Log("Lock screen password file path set to: " + this._lockScreenPasswordFilePath, LogLevel.info);
 
         this._h = 0; // Determined during constructor/render 
+        this._inactivityTimeout = null; // Timeout for auto-minimize on inactivity
 
         // --- Initial Feature Detection for Persistent Hashing ---
         try {
+            // Try to access file system through multiple possible paths
+            var fsAPI = this.fs || (this.handler && this.handler.fs) || (typeof fileSystem !== 'undefined' ? fileSystem : null);
+            
             if (typeof util !== 'undefined' && typeof util.sha256 === 'function' &&
                 typeof convert !== 'undefined' && typeof convert.arrayToText === 'function' && typeof convert.textToBlob === 'function' &&
-                this.fs && typeof this.fs.readFile === 'function' && typeof this.fs.writeFile === 'function') {
+                fsAPI && typeof fsAPI.readFile === 'function' && typeof fsAPI.writeFile === 'function') {
+                
+                // Store the fs API reference
+                this.fs = fsAPI;
 
                 this._h = 1;
                 if (typeof this.Log === 'function') this.Log("Persistent hashing and file system operations are initially detected as available.", LogLevel.info);
@@ -64,7 +71,7 @@ class proc extends ThirdPartyAppProcess {
                 if (typeof this.Log === 'function') this.Log("Initial check: Some core utilities for persistent hashing are not fully available. Will fall back to in-memory password storage.", LogLevel.warning);
                 if (typeof util === 'undefined' || typeof util.sha256 !== 'function') if (typeof this.Log === 'function') this.Log("  - util.sha256 missing or not a function.", LogLevel.warning);
                 if (typeof convert === 'undefined' || typeof convert.arrayToText !== 'function' || typeof convert.textToBlob !== 'function') if (typeof this.Log === 'function') this.Log("  - convert.arrayToText or convert.textToBlob missing or not a function.", LogLevel.warning);
-                if (!this.fs || typeof this.fs.readFile !== 'function' || typeof this.fs.writeFile !== 'function') if (typeof this.Log === 'function') this.Log("  - this.fs or its readFile/writeFile methods missing or not functions.", LogLevel.warning);
+                if (!fsAPI || typeof fsAPI.readFile !== 'function' || typeof fsAPI.writeFile !== 'function') if (typeof this.Log === 'function') this.Log("  - File system API not available (tried this.fs, this.handler.fs, and global fileSystem).", LogLevel.warning);
             }
         } catch (e) {
             if (typeof this.Log === 'function') this.Log("Error during initial utility check for persistent hashing: " + e.message, LogLevel.error);
@@ -198,8 +205,58 @@ class proc extends ThirdPartyAppProcess {
         };
         window.addEventListener('keydown', this._showOverlayListener);
 
+        // Set up inactivity timeout for auto-minimize (default 5 minutes / 300000ms)
+        this._resetInactivityTimeout();
+        this._setupActivityListeners();
+
         // Start the Flurry-style animation
         this.startFlurryAnimation();
+    }
+
+    /**
+     * Resets the inactivity timeout. Called on user activity to keep the window from auto-minimizing.
+     */
+    _resetInactivityTimeout() {
+        if (this._inactivityTimeout) {
+            clearTimeout(this._inactivityTimeout);
+        }
+        
+        // Check if autoMinimizeTimeout is set in app config (5 minutes default: 300000ms)
+        var timeoutDuration = 300000; // 5 minutes default
+        try {
+            // Try to get timeout from metadata if available
+            if (window.$METADATA && window.$METADATA.autoMinimizeTimeout) {
+                timeoutDuration = window.$METADATA.autoMinimizeTimeout;
+            }
+        } catch (e) {
+            // Ignore and use default
+        }
+
+        this._inactivityTimeout = setTimeout(() => {
+            // Auto-minimize if still unlocked is false (still active)
+            if (this._l === 0 && this._u === 0) {
+                if (typeof this.Log === 'function') this.Log("Inactivity timeout reached. Auto-minimizing window.", LogLevel.info);
+                if (typeof this.minimizeWindow === 'function') {
+                    this.minimizeWindow();
+                }
+            }
+        }, timeoutDuration);
+    }
+
+    /**
+     * Sets up activity listeners to reset inactivity timeout on user interaction.
+     */
+    _setupActivityListeners() {
+        var activityResetFn = () => {
+            this._resetInactivityTimeout();
+        };
+
+        window.addEventListener('mousemove', activityResetFn, { passive: true });
+        window.addEventListener('click', activityResetFn, { passive: true });
+        window.addEventListener('keydown', activityResetFn, { passive: true });
+        
+        // Store for cleanup if needed
+        this._activityResetFn = activityResetFn;
     }
 
     /**
@@ -208,10 +265,8 @@ class proc extends ThirdPartyAppProcess {
      * @returns {boolean} True if the app can close, false otherwise.
      */
     async onClose() {
-        if (this._l === 1) {
-            return true;
-        }
-        // Ensure we don't show multiple overlays if one is already active
+        // Always prevent closing - screensaver should never close via the close button or taskbar
+        // Users must unlock first (which will minimize) or use Force Quit
         if (this._u === 0 && this._s === 0) {
             this.showPasswordOverlay();
         }
@@ -264,6 +319,7 @@ class proc extends ThirdPartyAppProcess {
         if (!newPasswordInput || !confirmPasswordInput || !setPasswordBtn || !errorDiv) return;
 
         setPasswordBtn.onclick = async () => {
+            this._resetInactivityTimeout(); // Reset timeout on user action
             var newPassword = newPasswordInput.value;
             var confirmPassword = confirmPasswordInput.value;
 
@@ -290,6 +346,7 @@ class proc extends ThirdPartyAppProcess {
                     try {
                         var hashedPassword = await util.sha256(newPassword);
                         this._localPasswordHash = hashedPassword;
+                        this._localPassword = null; // Clear in-memory plaintext when we have a hash
                         if (typeof this.Log === 'function') this.Log("Lock screen password hashed and stored locally.", LogLevel.info);
 
                         var blob = convert.textToBlob(hashedPassword, 'text/plain');
@@ -298,7 +355,8 @@ class proc extends ThirdPartyAppProcess {
                     } catch (e) {
                         if (typeof this.Log === 'function') this.Log("Error during persistent password setup (hashing or file write): " + e.message, LogLevel.error);
                         this._h = 0;
-                        this._localPassword = newPassword;
+                        this._localPassword = newPassword; // Fall back to in-memory storage
+                        if (typeof this.Log === 'function') this.Log("Falling back to in-memory password storage due to persistent hashing failure.", LogLevel.warning);
                     }
                 } else {
                     this._localPassword = newPassword;
@@ -374,7 +432,8 @@ class proc extends ThirdPartyAppProcess {
 
         if (!secretCodeInput || !unlockSecretCodeBtn || !cancelBtn || !errorDiv) return;
 
-        unlockSecretCodeBtn.onclick = async () => {
+        unlothis._resetInactivityTimeout(); // Reset timeout on user action
+            ckSecretCodeBtn.onclick = async () => {
             var code = secretCodeInput.value;
             errorDiv.style.display = 'none';
 
@@ -461,8 +520,9 @@ class proc extends ThirdPartyAppProcess {
                 if (this._showOverlayListener) {
                     window.removeEventListener('keydown', this._showOverlayListener);
                 }
-                if (typeof this.closeWindow === 'function') {
-                    this.closeWindow();
+                // Minimize the window instead of closing it to prevent closing the taskbar
+                if (typeof this.minimizeWindow === 'function') {
+                    this.minimizeWindow();
                 }
             } else {
                 errorDiv.textContent = 'Invalid, foolish ' + (this.displayName || 'user'); // Changed message
@@ -472,9 +532,13 @@ class proc extends ThirdPartyAppProcess {
 
         cancelBtn.onclick = () => {
             inputOverlay.remove();
+            this._resetInactivityTimeout(); // Reset timeout when canceling overlay
             this._s = 0;
             // No action to go back to main password overlay. Just close.
         };
+            this._resetInactivityTimeout(); // Reset timeout on keypress
+            if (e.key === 'Enter') unlockSecretCodeBtn.click(); 
+       
 
         secretCodeInput.onkeydown = (e) => { if (e.key === 'Enter') unlockSecretCodeBtn.click(); };
     }
@@ -569,6 +633,7 @@ class proc extends ThirdPartyAppProcess {
         if (!unlockBtn || !cancelBtn || !passwordInput || !errorDiv || !shutdownBtn || !logoffBtn || !restartBtn) return;
 
         unlockBtn.onclick = async () => {
+            this._resetInactivityTimeout(); // Reset timeout on user action
             var password = passwordInput.value;
             if (!password) {
                 errorDiv.textContent = 'Please enter your password.';
@@ -615,8 +680,9 @@ class proc extends ThirdPartyAppProcess {
                     if (this._showOverlayListener) {
                         window.removeEventListener('keydown', this._showOverlayListener);
                     }
-                    if (typeof this.closeWindow === 'function') {
-                        this.closeWindow();
+                    // Minimize the window instead of closing it to prevent closing the taskbar
+                    if (typeof this.minimizeWindow === 'function') {
+                        this.minimizeWindow();
                     }
                 } else {
                     errorDiv.textContent = 'Incorrect password.';
@@ -631,6 +697,7 @@ class proc extends ThirdPartyAppProcess {
 
         cancelBtn.onclick = () => {
             overlay.remove();
+            this._resetInactivityTimeout(); // Reset timeout when canceling overlay
             this._u = 0;
         };
 
@@ -662,7 +729,8 @@ class proc extends ThirdPartyAppProcess {
             this.showSettingsDialog();
         };
 
-        passwordInput.onkeydown = (e) => {
+        passthis._resetInactivityTimeout(); // Reset timeout on keypress
+            wordInput.onkeydown = (e) => {
             if (e.key === 'Enter') unlockBtn.click();
         };
     }

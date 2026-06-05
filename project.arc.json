@@ -3,7 +3,7 @@
     "name": "Screensaver",
     "description": "A macOS like screensaver application for ArcOS",
     "author": "Nik Nikovsky",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "installLocation": "U:/Applications/NikN_Screensaver",
     "appId": "NikN_Screensaver",
     "store": {
@@ -17,6 +17,6 @@
   "outFile": "NikN_Screensaver.arc",
   "payloadDir": "src",
   "devPort": 3128,
-  "buildHash": "71c41920",
+  "buildHash": "0a1a70d3",
   "noHotRelaunch": false
 }
